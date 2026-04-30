@@ -1,0 +1,6 @@
+{
+  "name": "Programação de Produção",
+  "description": "Painel de cálculo e agendamento de programação de produção industrial baseado em data de montagem final.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
