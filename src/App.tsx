@@ -60,7 +60,7 @@ export default function App() {
   const [testSteps, setTestSteps] = useState<OPStep[]>([]);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
   // Somente a última linha copiada fica destacada.
-  // Ao copiar outra OP ou QTD, a linha anterior desmarca automaticamente.
+  // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
   const [copiedRowKey, setCopiedRowKey] = useState<string | null>(null);
 
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
@@ -695,7 +695,6 @@ export default function App() {
                     const validationInfo = getMainValidationInfo(step);
                     const isCopiedOP = copiedValue === `OP:${step.op}`;
                     const isCopiedDATA = copiedValue === `DATA:${formattedDate}`;
-                    const isCopiedQTD = copiedValue === `QTD:${step.qtd_mf}`;
                     return (
                       <tr 
                         key={`${step.id}_${step.data_mf}_${index}`}
@@ -718,8 +717,9 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => copyValue(step.op, 'OP', rowKey)}
-                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black transition-colors flex items-center justify-center"
+                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black focus:bg-brand-accent focus:text-black focus:outline-none focus:ring-2 focus:ring-brand-accent/70 focus:ring-offset-2 focus:ring-offset-brand-bg transition-colors flex items-center justify-center"
                               title="Copiar OP"
+                              aria-label={`Copiar OP ${step.op}`}
                             >
                               {isCopiedOP ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                             </button>
@@ -731,25 +731,16 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => copyValue(formattedDate, 'DATA', rowKey)}
-                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black transition-colors flex items-center justify-center"
+                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black focus:bg-brand-accent focus:text-black focus:outline-none focus:ring-2 focus:ring-brand-accent/70 focus:ring-offset-2 focus:ring-offset-brand-bg transition-colors flex items-center justify-center"
                               title="Copiar Data"
+                              aria-label={`Copiar Data ${formattedDate}`}
                             >
                               {isCopiedDATA ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                             </button>
                           </div>
                         </td>
                         <td className="p-[14px] px-6">
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono text-[15px] font-bold text-white">{step.qtd_mf}</span>
-                            <button
-                              type="button"
-                              onClick={() => copyValue(step.qtd_mf, 'QTD', rowKey)}
-                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black transition-colors flex items-center justify-center"
-                              title="Copiar QTD"
-                            >
-                              {isCopiedQTD ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                            </button>
-                          </div>
+                          <span className="font-mono text-[15px] font-bold text-white">{step.qtd_mf}</span>
                         </td>
                         <td className="p-[14px] px-6 text-[13px] text-white font-medium">
                           {step.stepName}
