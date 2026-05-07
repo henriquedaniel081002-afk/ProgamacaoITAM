@@ -19,6 +19,45 @@ type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: str
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 
+const LINKED_SECTOR_GROUPS = [
+  { label: 'Ferragem + Pintura Ferragem', sectors: ['Ferragem', 'Pintura Ferragem'] },
+  { label: 'Corte Núcleo + Montagem Núcleo', sectors: ['Corte Núcleo', 'Montagem Núcleo'] },
+  { label: 'Estamparia + Solda Tanque + Pintura Tanque', sectors: ['Estamparia', 'Solda Tanque', 'Pintura Tanque'] },
+];
+
+const getLinkedSectorGroup = (sector: string) =>
+  LINKED_SECTOR_GROUPS.find(group => group.sectors.includes(sector));
+
+const getSectorFilterOptions = () => {
+  const groupedSectors = new Set(LINKED_SECTOR_GROUPS.flatMap(group => [...group.sectors]));
+  const standaloneSectors = PRODUCTION_STEPS
+    .map(step => step.name)
+    .filter(sector => !groupedSectors.has(sector));
+
+  return [
+    ...LINKED_SECTOR_GROUPS.map(group => group.label),
+    ...standaloneSectors,
+  ];
+};
+
+const getSectorsForFilter = (filterValue: string) => {
+  const group = LINKED_SECTOR_GROUPS.find(item => item.label === filterValue);
+  return group ? [...group.sectors] : [filterValue];
+};
+
+const getSectorGroupLabel = (sector: string) => getLinkedSectorGroup(sector)?.label || sector;
+const getSectorGroupOrder = (sector: string) => {
+  const groupIndex = LINKED_SECTOR_GROUPS.findIndex(group => group.sectors.includes(sector));
+  if (groupIndex >= 0) return groupIndex;
+  return LINKED_SECTOR_GROUPS.length + PRODUCTION_STEPS.findIndex(step => step.name === sector);
+};
+const getSectorOrderInsideGroup = (sector: string) => {
+  const group = getLinkedSectorGroup(sector);
+  if (!group) return 0;
+  return group.sectors.indexOf(sector);
+};
+const getGroupedStepKey = (step: OPStep) => `${step.op}|${Math.round(Number(step.qtd_mf || 0) * 1000) / 1000}|${getSectorGroupLabel(step.stepName)}`;
+
 
 const COD_TO_SETOR: Record<string, string> = {
   '2658':'BOBINAGEM AT','2480':'BOBINAGEM AT','2026':'BOBINAGEM AT',
@@ -503,17 +542,42 @@ export default function App() {
     return calculatedSteps.filter(step => {
       if (filters.dateStart && step.usedDate < filters.dateStart) return false;
       if (filters.dateEnd && step.usedDate > filters.dateEnd) return false;
-      if (filters.sector && step.stepName !== filters.sector) return false;
+      if (filters.sector && !getSectorsForFilter(filters.sector).includes(step.stepName)) return false;
       if (filters.linha && step.linha !== filters.linha) return false;
       if (filters.op && !step.op.toLowerCase().includes(filters.op.toLowerCase())) return false;
       return true;
     });
   }, [calculatedSteps, filters]);
 
+  const sectorFilterOptions = useMemo(() => getSectorFilterOptions(), []);
+
   const sortedSteps = useMemo(() => {
+    const groupFirstDate = new Map<string, string>();
+    filteredSteps.forEach(step => {
+      const groupKey = getGroupedStepKey(step);
+      const currentDate = groupFirstDate.get(groupKey);
+      if (!currentDate || step.usedDate < currentDate) {
+        groupFirstDate.set(groupKey, step.usedDate);
+      }
+    });
+
     return [...filteredSteps].sort((a, b) => {
       const opCompare = a.op.localeCompare(b.op, undefined, { numeric: true });
       if (opCompare !== 0) return opCompare;
+
+      const qtyCompare = normalizeQty(a.qtd_mf) - normalizeQty(b.qtd_mf);
+      if (qtyCompare !== 0) return qtyCompare;
+
+      const dateA = groupFirstDate.get(getGroupedStepKey(a)) || a.usedDate;
+      const dateB = groupFirstDate.get(getGroupedStepKey(b)) || b.usedDate;
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+      const groupCompare = getSectorGroupOrder(a.stepName) - getSectorGroupOrder(b.stepName);
+      if (groupCompare !== 0) return groupCompare;
+
+      const sectorOrderCompare = getSectorOrderInsideGroup(a.stepName) - getSectorOrderInsideGroup(b.stepName);
+      if (sectorOrderCompare !== 0) return sectorOrderCompare;
+
       if (a.usedDate !== b.usedDate) return a.usedDate.localeCompare(b.usedDate);
       if (a.stepName !== b.stepName) return a.stepName.localeCompare(b.stepName);
       return a.linha.localeCompare(b.linha);
@@ -647,7 +711,7 @@ export default function App() {
           <FilterBar 
             filters={filters} 
             setFilters={setFilters} 
-            sectors={PRODUCTION_STEPS.map(s => s.name)} 
+            sectors={sectorFilterOptions} 
           />
         </aside>
 
