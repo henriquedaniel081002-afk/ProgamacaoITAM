@@ -1,9 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Courier New", monospace;
+  --font-sans: Arial, "Helvetica Neue", sans-serif;
+  --font-mono: Arial, "Helvetica Neue", sans-serif;
 
   --color-brand-bg: #0A0A0B;
   --color-brand-card: #141416;

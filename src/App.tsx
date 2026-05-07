@@ -59,6 +59,24 @@ const getSectorOrderInsideGroup = (sector: string) => {
 const getGroupedStepKey = (step: OPStep) => `${step.op}|${Math.round(Number(step.qtd_mf || 0) * 1000) / 1000}|${getSectorGroupLabel(step.stepName)}`;
 
 
+
+const SECTOR_SANKHYA_CODES: Record<string, string[]> = {
+  'Bobinagem AT': ['2658', '2480', '2026'],
+  'Bobinagem BT': ['2640', '2487', '2033'],
+  'Corte Núcleo': ['2714', '2471'],
+  'Estamparia': ['2881', '2829'],
+  'Ferragem': ['2818'],
+  'Isolante': ['2694'],
+  'Montagem Final': ['2701', '2436', '2198', '2187'],
+  'Montagem Núcleo': ['2716', '2473'],
+  'MPA': ['2855', '2460'],
+  'Pintura Ferragem': ['2819', '2512'],
+  'Pintura Tanque': ['2885', '2833'],
+  'Solda Tanque': ['2883', '2831'],
+};
+
+const getSectorSankhyaCodes = (sector: string) => SECTOR_SANKHYA_CODES[sector] || [];
+
 const COD_TO_SETOR: Record<string, string> = {
   '2658':'BOBINAGEM AT','2480':'BOBINAGEM AT','2026':'BOBINAGEM AT',
   '2640':'BOBINAGEM BT','2487':'BOBINAGEM BT','2033':'BOBINAGEM BT',
@@ -807,7 +825,14 @@ export default function App() {
                           <span className="font-mono text-[15px] font-bold text-white">{step.qtd_mf}</span>
                         </td>
                         <td className="p-[14px] px-6 text-[13px] text-white font-medium">
-                          {step.stepName}
+                          <div className="flex flex-col gap-1">
+                            <span>{step.stepName}</span>
+                            {getSectorSankhyaCodes(step.stepName).length > 0 && (
+                              <span className="text-[10px] font-bold tracking-wide text-brand-muted">
+                                Cód. Sankhya: {getSectorSankhyaCodes(step.stepName).join(' / ')}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-[14px] px-6">
                           <span className="bg-[#2A2A2E] px-2 py-1 rounded text-[11px] font-semibold text-brand-muted">{step.linha || '-'}</span>
@@ -897,7 +922,16 @@ export default function App() {
                           <td className="p-3 px-4 font-mono text-brand-accent font-bold">{result.op}</td>
                           <td className="p-3 px-4 font-mono text-white">{result.dataPainel ? formatToBRLDate(result.dataPainel) : '-'}</td>
                           <td className="p-3 px-4 font-mono text-white">{result.dataSistema ? formatToBRLDate(result.dataSistema) : '-'}</td>
-                          <td className="p-3 px-4 text-white text-sm">{result.setor}</td>
+                          <td className="p-3 px-4 text-white text-sm">
+                            <div className="flex flex-col gap-1">
+                              <span>{result.setor}</span>
+                              {getSectorSankhyaCodes(result.setor).length > 0 && (
+                                <span className="text-[10px] font-bold tracking-wide text-brand-muted">
+                                  Cód. Sankhya: {getSectorSankhyaCodes(result.setor).join(' / ')}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="p-3 px-4 font-mono text-white">{result.qtdPainel ?? '-'}</td>
                           <td className="p-3 px-4 font-mono text-white">{result.qtdSistema ?? '-'}</td>
                           <td className="p-3 px-4 text-brand-muted text-xs">{result.observacao}</td>
@@ -972,7 +1006,16 @@ export default function App() {
                   <tbody>
                     {testSteps.map((step) => (
                       <tr key={step.id} className="border-b border-brand-border hover:bg-[#1A1A1D]">
-                        <td className="p-3 px-5 text-white text-sm font-medium">{step.stepName}</td>
+                        <td className="p-3 px-5 text-white text-sm font-medium">
+                          <div className="flex flex-col gap-1">
+                            <span>{step.stepName}</span>
+                            {getSectorSankhyaCodes(step.stepName).length > 0 && (
+                              <span className="text-[10px] font-bold tracking-wide text-brand-muted">
+                                Cód. Sankhya: {getSectorSankhyaCodes(step.stepName).join(' / ')}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-3 px-5">
                           <span className="font-mono text-[14px] font-extrabold text-white bg-brand-accent/15 border border-brand-accent/30 rounded-md px-3 py-1">
                             {formatToBRLDate(step.usedDate)}
