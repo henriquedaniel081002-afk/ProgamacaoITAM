@@ -116,6 +116,7 @@ export default function App() {
   const [testMfDate, setTestMfDate] = useState('');
   const [testSteps, setTestSteps] = useState<OPStep[]>([]);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'programacao' | 'dashboard'>('programacao');
   // Somente a última linha copiada fica destacada.
   // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
   const [copiedRowKey, setCopiedRowKey] = useState<string | null>(null);
@@ -661,7 +662,26 @@ export default function App() {
     });
   }, [sortedSteps, showOnlyErrors, sankhyaRows.length, validationByPanelKey]);
 
-  const rowVisualInfo = useMemo(() => {
+  
+  const dashboardStats = useMemo(() => {
+    const grouped = new Map<string, Record<string, number>>();
+
+    displayedSteps.forEach(step => {
+      const group = getSectorGroupLabel(step.stepName);
+      const validationInfo = getMainValidationInfo(step);
+      const status = validationInfo?.status ?? 'Sem validação';
+
+      if (!grouped.has(group)) {
+        grouped.set(group, { OK: 0, 'Não programado': 0, 'Data divergente': 0, 'Quantidade divergente': 0, Duplicado: 0, Extra: 0, 'Sem validação': 0 });
+      }
+
+      grouped.get(group)![status] = (grouped.get(group)![status] || 0) + 1;
+    });
+
+    return Array.from(grouped.entries()).map(([group, stats]) => ({ group, stats }));
+  }, [displayedSteps, validationResults]);
+
+const rowVisualInfo = useMemo(() => {
     const groupSequence = new Map<string, number>();
     const firstRowByGroup = new Map<string, string>();
     const info = new Map<string, { isFirstInGroup: boolean; toneClass: string }>();
@@ -759,6 +779,10 @@ export default function App() {
 
         {/* Content Area */}
         <section className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex items-center gap-2 px-6 py-3 border-b border-brand-border bg-[#111111]">
+            <button onClick={() => setActiveTab('programacao')} className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'programacao' ? 'bg-brand-accent text-black' : 'bg-brand-card text-white border border-brand-border'}`}>Programação</button>
+            <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'dashboard' ? 'bg-brand-accent text-black' : 'bg-brand-card text-white border border-brand-border'}`}>Dashboard</button>
+          </div>
           <div className="p-4 px-6 border-b border-brand-border text-[12px] font-bold uppercase text-brand-muted flex justify-between shrink-0 tracking-widest">
             <span>Agenda de Produção</span>
             <div className="flex items-center gap-4">
@@ -773,7 +797,29 @@ export default function App() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-0">
-            {displayedSteps.length === 0 ? (
+            {activeTab === 'dashboard' ? (
+              <div className="p-6 overflow-y-auto flex flex-col gap-6">
+                {dashboardStats.map(item => {
+                  const total = Object.values(item.stats).reduce((a,b)=>a+b,0);
+                  return (
+                    <div key={item.group} className="border border-brand-border rounded-xl bg-[#121214] p-5">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-white font-bold text-lg">{item.group}</h3>
+                        <span className="text-brand-muted text-sm">{total} registros</span>
+                      </div>
+                      <div className="flex h-8 rounded-lg overflow-hidden border border-brand-border">
+                        {Object.entries(item.stats).map(([status, value]) => {
+                          if (value === 0) return null;
+                          const width = `${(value / total) * 100}%`;
+                          const color = status === 'OK' ? '#00EE76' : status === 'Não programado' ? '#EF4444' : status === 'Duplicado' ? '#F97316' : '#EAB308';
+                          return <div key={status} className="h-full flex items-center justify-center text-[11px] font-bold text-black" style={{ width, backgroundColor: color }}>{value}</div>;
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : displayedSteps.length === 0 ? (
               <div className="py-20 text-center flex flex-col items-center justify-center opacity-50">
                 <CalendarIcon className="w-12 h-12 text-brand-muted mb-4" />
                 <h3 className="text-white font-medium text-lg">Nenhuma programação encontrada</h3>
