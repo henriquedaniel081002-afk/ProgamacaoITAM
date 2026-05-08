@@ -889,7 +889,8 @@ const rowVisualInfo = useMemo(() => {
                                 <div key={bucket.key} className="grid grid-cols-[14px_1fr_auto] items-center gap-2 text-sm">
                                   <span className="w-3 h-3 rounded-full" style={{ backgroundColor: bucket.color }} />
                                   <span className="text-white font-semibold">{bucket.label}</span>
-                                  <span className="text-brand-muted font-mono">
+                                  <span className="text-brand-muted font-mono text-right whitespace-nowrap">
+                                    <span className="text-white/80 font-semibold font-sans mr-1">{bucket.label}:</span>
                                     {item.stats[bucket.key]} <span className="hidden sm:inline">({total ? ((item.stats[bucket.key] / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)</span>
                                   </span>
                                 </div>
