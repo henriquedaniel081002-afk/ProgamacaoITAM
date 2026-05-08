@@ -661,6 +661,30 @@ export default function App() {
     });
   }, [sortedSteps, showOnlyErrors, sankhyaRows.length, validationByPanelKey]);
 
+  const rowVisualInfo = useMemo(() => {
+    const groupSequence = new Map<string, number>();
+    const firstRowByGroup = new Map<string, string>();
+    const info = new Map<string, { isFirstInGroup: boolean; toneClass: string }>();
+
+    displayedSteps.forEach(step => {
+      const groupKey = getGroupedStepKey(step);
+      const rowKey = getRowKey(step);
+
+      if (!groupSequence.has(groupKey)) {
+        groupSequence.set(groupKey, groupSequence.size);
+        firstRowByGroup.set(groupKey, rowKey);
+      }
+
+      const groupIndex = groupSequence.get(groupKey) || 0;
+      info.set(rowKey, {
+        isFirstInGroup: firstRowByGroup.get(groupKey) === rowKey,
+        toneClass: groupIndex % 2 === 0 ? 'bg-[#0E0E10]' : 'bg-[#171719]'
+      });
+    });
+
+    return info;
+  }, [displayedSteps]);
+
   const totalOpsUnique = new Set(displayedSteps.map(s => s.op)).size;
   const totalSectors = new Set(displayedSteps.map(s => s.stepName)).size;
   const totalDates = new Set(displayedSteps.map(s => s.usedDate)).size;
@@ -777,15 +801,16 @@ export default function App() {
                     const validationInfo = getMainValidationInfo(step);
                     const isCopiedOP = copiedValue === `OP:${step.op}`;
                     const isCopiedDATA = copiedValue === `DATA:${formattedDate}`;
+                    const rowVisual = rowVisualInfo.get(rowKey);
+                    const groupBgClass = rowVisual?.toneClass || 'bg-brand-bg';
+                    const groupBorderClass = rowVisual?.isFirstInGroup ? 'border-l-brand-accent' : 'border-l-transparent';
                     return (
                       <tr 
                         key={`${step.id}_${step.data_mf}_${index}`}
-                        className={`border-b border-brand-border transition-colors border-l-[3px] ${
+                        className={`border-b border-brand-border transition-colors border-l-[3px] border-r-[3px] ${
                           isRowCopied
-                            ? 'bg-brand-accent/15 border-l-brand-accent border-r-[3px] border-r-brand-accent shadow-[inset_0_0_0_1px_rgba(242,125,38,0.35)]'
-                            : isDuplicateOp
-                              ? 'border-l-white border-r-[3px] border-r-white hover:bg-[#1A1A1D] hover:border-l-white hover:border-r-white'
-                              : 'border-l-transparent border-r-[3px] border-r-transparent hover:bg-[#1A1A1D] hover:border-l-brand-accent'
+                            ? 'bg-brand-accent/15 border-l-brand-accent border-r-brand-accent shadow-[inset_0_0_0_1px_rgba(0,238,118,0.35)]'
+                            : `${groupBgClass} ${groupBorderClass} border-r-transparent hover:bg-[#1E1E21] hover:border-l-brand-accent`
                         }`}
                       >
                         <td className="p-[14px] px-6">
