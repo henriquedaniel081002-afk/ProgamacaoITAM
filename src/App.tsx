@@ -846,21 +846,25 @@ const rowVisualInfo = useMemo(() => {
             {activeTab === 'dashboard' ? (
               <div className="p-6 overflow-y-auto">
                 <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-6 items-start">
-                  <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
                     {dashboardStats.map(item => {
                       const total = Object.values(item.stats).reduce((a, b) => a + b, 0);
                       const segments = buildDonutSegments(item.stats, total);
 
                       return (
-                        <div key={item.group} className="border border-brand-border rounded-xl bg-[#121214] p-4 md:p-5 shadow-[0_14px_40px_rgba(0,0,0,0.18)]">
-                          <div className="grid grid-cols-[56px_1fr] md:grid-cols-[64px_220px_140px_1fr_150px_24px] items-center gap-4">
-                            <div className="w-12 h-12 rounded-full bg-brand-accent/15 border border-brand-accent/20 flex items-center justify-center text-brand-accent shrink-0">
-                              <Factory className="w-6 h-6" />
+                        <div key={item.group} className="border border-brand-border rounded-xl bg-[#121214] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.18)] min-h-[250px] flex flex-col justify-between">
+                          <div className="flex items-start justify-between gap-4 mb-5">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-11 h-11 rounded-full bg-brand-accent/15 border border-brand-accent/20 flex items-center justify-center text-brand-accent shrink-0">
+                                <Factory className="w-5 h-5" />
+                              </div>
+                              <h3 className="text-white font-extrabold text-base leading-tight break-words">{item.group}</h3>
                             </div>
+                            <ChevronRight className="w-5 h-5 text-brand-muted shrink-0 mt-2" />
+                          </div>
 
-                            <h3 className="text-white font-extrabold text-base md:text-lg leading-tight">{item.group}</h3>
-
-                            <div className="relative w-24 h-24 mx-auto hidden md:block">
+                          <div className="flex items-center gap-5 mb-5">
+                            <div className="relative w-24 h-24 shrink-0">
                               <svg viewBox="0 0 42 42" className="w-24 h-24 -rotate-90">
                                 <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#252529" strokeWidth="5" />
                                 {segments.map(segment => (
@@ -884,22 +888,28 @@ const rowVisualInfo = useMemo(() => {
                               </div>
                             </div>
 
-                            <div className="space-y-2 col-span-2 md:col-span-1">
+                            <div className="space-y-2 min-w-0 flex-1">
                               {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
-                                <div key={bucket.key} className="grid grid-cols-[14px_1fr_auto] items-center gap-2 text-sm">
+                                <div key={bucket.key} className="grid grid-cols-[12px_1fr] items-center gap-2 text-sm">
                                   <span className="w-3 h-3 rounded-full" style={{ backgroundColor: bucket.color }} />
-                                  <span className="text-white font-semibold">{bucket.label}</span>
-                                  <span className="text-brand-muted font-mono text-right whitespace-nowrap">
-                                    <span className="text-white/80 font-semibold font-sans mr-1">{bucket.label}:</span>
-                                    {item.stats[bucket.key]} <span className="hidden sm:inline">({total ? ((item.stats[bucket.key] / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)</span>
-                                  </span>
+                                  <span className="text-white font-semibold truncate">{bucket.label}</span>
                                 </div>
                               ))}
                             </div>
-
-                            <span className="text-brand-muted text-sm justify-self-end col-span-2 md:col-span-1">{total} registros</span>
-                            <ChevronRight className="hidden md:block w-5 h-5 text-brand-muted" />
                           </div>
+
+                          <div className="border-t border-brand-border/70 pt-3 space-y-2">
+                            {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
+                              <div key={bucket.key} className="flex items-center justify-between gap-3 text-sm">
+                                <span className="text-white font-semibold">{bucket.label}</span>
+                                <span className="text-brand-muted font-mono text-right whitespace-nowrap">
+                                  {item.stats[bucket.key]} ({total ? ((item.stats[bucket.key] / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-4 text-right text-brand-muted text-sm">{total} registros</div>
                         </div>
                       );
                     })}
