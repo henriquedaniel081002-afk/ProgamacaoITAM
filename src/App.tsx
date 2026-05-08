@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Calendar as CalendarIcon, Copy, Check, FlaskConical, X, FileCheck2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Copy, Check, FlaskConical, X, FileCheck2, ChevronRight, Factory } from 'lucide-react';
 import { 
   RawOP, 
   OPStep, 
@@ -18,6 +18,52 @@ type ValidationStatus = 'OK' | 'Não programado' | 'Data divergente' | 'Quantida
 type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: string; dataSistema?: string; setor: string; qtdPainel?: number; qtdSistema?: number; linhaPainel?: string; linhaSistema?: string; observacao: string; };
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
+
+type DashboardBucket = 'conforme' | 'divergente' | 'naoProgramado' | 'semValidacao';
+type DashboardGroupStats = Record<DashboardBucket, number>;
+
+const DASHBOARD_BUCKETS: Array<{ key: DashboardBucket; label: string; color: string; description: string }> = [
+  { key: 'conforme', label: 'Conforme', color: '#00EE76', description: 'Programado conforme Sankhya' },
+  { key: 'divergente', label: 'Divergente', color: '#F97316', description: 'Diferença na data, quantidade ou atividade' },
+  { key: 'naoProgramado', label: 'Não programado', color: '#EF4444', description: 'Não encontrado no Sankhya' },
+  { key: 'semValidacao', label: 'Sem validação', color: '#6B7280', description: 'Validação ainda não executada' },
+];
+
+const createEmptyDashboardStats = (): DashboardGroupStats => ({
+  conforme: 0,
+  divergente: 0,
+  naoProgramado: 0,
+  semValidacao: 0,
+});
+
+const getDashboardBucket = (status?: ValidationStatus | 'Sem validação'): DashboardBucket => {
+  if (!status || status === 'Sem validação') return 'semValidacao';
+  if (status === 'OK') return 'conforme';
+  if (status === 'Não programado') return 'naoProgramado';
+  return 'divergente';
+};
+
+const buildDonutSegments = (stats: DashboardGroupStats, total: number) => {
+  if (total <= 0) return [];
+  let offset = 25;
+  return DASHBOARD_BUCKETS
+    .map(bucket => {
+      const value = stats[bucket.key];
+      if (!value) return null;
+      const percentage = (value / total) * 100;
+      const segment = {
+        ...bucket,
+        value,
+        percentage,
+        dashArray: `${percentage} ${100 - percentage}`,
+        dashOffset: -offset,
+      };
+      offset += percentage;
+      return segment;
+    })
+    .filter(Boolean) as Array<(typeof DASHBOARD_BUCKETS)[number] & { value: number; percentage: number; dashArray: string; dashOffset: number }>;
+};
+
 
 const LINKED_SECTOR_GROUPS = [
   { label: 'Ferragem + Pintura Ferragem', sectors: ['Ferragem', 'Pintura Ferragem'] },
@@ -664,22 +710,22 @@ export default function App() {
 
   
   const dashboardStats = useMemo(() => {
-    const grouped = new Map<string, Record<string, number>>();
+    const grouped = new Map<string, DashboardGroupStats>();
 
     displayedSteps.forEach(step => {
       const group = getSectorGroupLabel(step.stepName);
       const validationInfo = getMainValidationInfo(step);
-      const status = validationInfo?.status ?? 'Sem validação';
+      const bucket = getDashboardBucket(validationInfo?.status ?? 'Sem validação');
 
       if (!grouped.has(group)) {
-        grouped.set(group, { OK: 0, 'Não programado': 0, 'Data divergente': 0, 'Quantidade divergente': 0, Duplicado: 0, Extra: 0, 'Sem validação': 0 });
+        grouped.set(group, createEmptyDashboardStats());
       }
 
-      grouped.get(group)![status] = (grouped.get(group)![status] || 0) + 1;
+      grouped.get(group)![bucket] += 1;
     });
 
     return Array.from(grouped.entries()).map(([group, stats]) => ({ group, stats }));
-  }, [displayedSteps, validationResults]);
+  }, [displayedSteps, validationResults, sankhyaRows.length]);
 
 const rowVisualInfo = useMemo(() => {
     const groupSequence = new Map<string, number>();
@@ -798,26 +844,81 @@ const rowVisualInfo = useMemo(() => {
 
           <div className="flex-1 overflow-y-auto p-0">
             {activeTab === 'dashboard' ? (
-              <div className="p-6 overflow-y-auto flex flex-col gap-6">
-                {dashboardStats.map(item => {
-                  const total = Object.values(item.stats).reduce((a,b)=>a+b,0);
-                  return (
-                    <div key={item.group} className="border border-brand-border rounded-xl bg-[#121214] p-5">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-white font-bold text-lg">{item.group}</h3>
-                        <span className="text-brand-muted text-sm">{total} registros</span>
-                      </div>
-                      <div className="flex h-8 rounded-lg overflow-hidden border border-brand-border">
-                        {Object.entries(item.stats).map(([status, value]) => {
-                          if (value === 0) return null;
-                          const width = `${(value / total) * 100}%`;
-                          const color = status === 'OK' ? '#00EE76' : status === 'Não programado' ? '#EF4444' : status === 'Duplicado' ? '#F97316' : '#EAB308';
-                          return <div key={status} className="h-full flex items-center justify-center text-[11px] font-bold text-black" style={{ width, backgroundColor: color }}>{value}</div>;
-                        })}
-                      </div>
+              <div className="p-6 overflow-y-auto">
+                <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-6 items-start">
+                  <div className="flex flex-col gap-4">
+                    {dashboardStats.map(item => {
+                      const total = Object.values(item.stats).reduce((a, b) => a + b, 0);
+                      const segments = buildDonutSegments(item.stats, total);
+
+                      return (
+                        <div key={item.group} className="border border-brand-border rounded-xl bg-[#121214] p-4 md:p-5 shadow-[0_14px_40px_rgba(0,0,0,0.18)]">
+                          <div className="grid grid-cols-[56px_1fr] md:grid-cols-[64px_220px_140px_1fr_150px_24px] items-center gap-4">
+                            <div className="w-12 h-12 rounded-full bg-brand-accent/15 border border-brand-accent/20 flex items-center justify-center text-brand-accent shrink-0">
+                              <Factory className="w-6 h-6" />
+                            </div>
+
+                            <h3 className="text-white font-extrabold text-base md:text-lg leading-tight">{item.group}</h3>
+
+                            <div className="relative w-24 h-24 mx-auto hidden md:block">
+                              <svg viewBox="0 0 42 42" className="w-24 h-24 -rotate-90">
+                                <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#252529" strokeWidth="5" />
+                                {segments.map(segment => (
+                                  <circle
+                                    key={segment.key}
+                                    cx="21"
+                                    cy="21"
+                                    r="15.915"
+                                    fill="transparent"
+                                    stroke={segment.color}
+                                    strokeWidth="5"
+                                    strokeDasharray={segment.dashArray}
+                                    strokeDashoffset={segment.dashOffset}
+                                    strokeLinecap="butt"
+                                  />
+                                ))}
+                              </svg>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                                <span className="text-white text-lg font-black leading-none">{total}</span>
+                                <span className="text-[10px] text-brand-muted font-bold">total</span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 col-span-2 md:col-span-1">
+                              {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
+                                <div key={bucket.key} className="grid grid-cols-[14px_1fr_auto] items-center gap-2 text-sm">
+                                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: bucket.color }} />
+                                  <span className="text-white font-semibold">{bucket.label}</span>
+                                  <span className="text-brand-muted font-mono">
+                                    {item.stats[bucket.key]} <span className="hidden sm:inline">({total ? ((item.stats[bucket.key] / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <span className="text-brand-muted text-sm justify-self-end col-span-2 md:col-span-1">{total} registros</span>
+                            <ChevronRight className="hidden md:block w-5 h-5 text-brand-muted" />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <aside className="border border-brand-border rounded-xl bg-[#121214] p-5 xl:sticky xl:top-4">
+                    <h3 className="text-brand-muted text-xs font-black uppercase tracking-[0.25em] mb-4">Legenda</h3>
+                    <div className="space-y-3">
+                      {DASHBOARD_BUCKETS.map(bucket => (
+                        <div key={bucket.key} className="rounded-lg bg-[#1A1A1D] border border-brand-border/70 p-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="w-4 h-4 rounded-full" style={{ backgroundColor: bucket.color }} />
+                            <span className="text-white font-extrabold text-sm">{bucket.label}</span>
+                          </div>
+                          <p className="text-brand-muted text-xs leading-relaxed pl-7">{bucket.description}</p>
+                        </div>
+                      ))}
                     </div>
-                  );
-                })}
+                  </aside>
+                </div>
               </div>
             ) : displayedSteps.length === 0 ? (
               <div className="py-20 text-center flex flex-col items-center justify-center opacity-50">
