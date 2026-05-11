@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Calendar as CalendarIcon, Copy, Check, FlaskConical, X, FileCheck2, ChevronRight, Factory } from 'lucide-react';
 import { 
@@ -7,7 +7,8 @@ import {
   ValidDaysConfig, 
   PRODUCTION_STEPS, 
   generateStepsForOP, 
-  parseExcelDate 
+  parseExcelDate,
+  shouldIncludeProductionStep 
 } from './lib/productionLogic';
 import { formatToBRLDate } from './lib/utils';
 import { CalendarModal } from './components/CalendarModal';
@@ -149,14 +150,52 @@ const mapCodToSetor = (cod: any, fallback: string) => {
   return COD_TO_SETOR[key] || fallback;
 };
 
+const STORAGE_KEYS = {
+  validDaysConfig: 'itam_prog_valid_days_config_v1',
+  rawOPs: 'itam_prog_raw_ops_v1',
+  calculatedSteps: 'itam_prog_calculated_steps_v1',
+  sankhyaRows: 'itam_prog_sankhya_rows_v1',
+  validationResults: 'itam_prog_validation_results_v1',
+  showOnlyErrors: 'itam_prog_show_only_errors_v1',
+};
+
+const readStorage = <T,>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored ? (JSON.parse(stored) as T) : fallback;
+  } catch (error) {
+    console.warn(`Não foi possível carregar ${key} do localStorage.`, error);
+    return fallback;
+  }
+};
+
+const writeStorage = (key: string, value: unknown) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`Não foi possível salvar ${key} no localStorage.`, error);
+  }
+};
+
+const DEFAULT_VALID_DAYS_CONFIG: ValidDaysConfig = {
+  invalidDays: [],
+  extraValidDays: []
+};
+
 export default function App() {
-  const [validDaysConfig, setValidDaysConfig] = useState<ValidDaysConfig>({
-    invalidDays: [],
-    extraValidDays: []
-  });
+  const [validDaysConfig, setValidDaysConfig] = useState<ValidDaysConfig>(() =>
+    readStorage(STORAGE_KEYS.validDaysConfig, DEFAULT_VALID_DAYS_CONFIG)
+  );
   
-  const [rawOPs, setRawOPs] = useState<RawOP[]>([]);
-  const [calculatedSteps, setCalculatedSteps] = useState<OPStep[]>([]);
+  const [rawOPs, setRawOPs] = useState<RawOP[]>(() => readStorage(STORAGE_KEYS.rawOPs, []));
+  const [calculatedSteps, setCalculatedSteps] = useState<OPStep[]>(() =>
+    readStorage<OPStep[]>(STORAGE_KEYS.calculatedSteps, [])
+      .filter(step => shouldIncludeProductionStep(step.linha, step.stepName))
+  );
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [testMfDate, setTestMfDate] = useState('');
@@ -169,9 +208,9 @@ export default function App() {
 
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
-  const [sankhyaRows, setSankhyaRows] = useState<SankhyaProgramRow[]>([]);
-  const [validationResults, setValidationResults] = useState<ValidationResult[]>([]);
-  const [showOnlyErrors, setShowOnlyErrors] = useState(false);
+  const [sankhyaRows, setSankhyaRows] = useState<SankhyaProgramRow[]>(() => readStorage(STORAGE_KEYS.sankhyaRows, []));
+  const [validationResults, setValidationResults] = useState<ValidationResult[]>(() => readStorage(STORAGE_KEYS.validationResults, []));
+  const [showOnlyErrors, setShowOnlyErrors] = useState<boolean>(() => readStorage(STORAGE_KEYS.showOnlyErrors, false));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const validationFileInputRef = useRef<HTMLInputElement>(null);
@@ -183,6 +222,30 @@ export default function App() {
     linha: '',
     op: ''
   });
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.validDaysConfig, validDaysConfig);
+  }, [validDaysConfig]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.rawOPs, rawOPs);
+  }, [rawOPs]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.calculatedSteps, calculatedSteps);
+  }, [calculatedSteps]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.sankhyaRows, sankhyaRows);
+  }, [sankhyaRows]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.validationResults, validationResults);
+  }, [validationResults]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.showOnlyErrors, showOnlyErrors);
+  }, [showOnlyErrors]);
 
 
   const normalizeHeader = (value: string) =>
@@ -744,7 +807,7 @@ const rowVisualInfo = useMemo(() => {
       const groupIndex = groupSequence.get(groupKey) || 0;
       info.set(rowKey, {
         isFirstInGroup: firstRowByGroup.get(groupKey) === rowKey,
-        toneClass: groupIndex % 2 === 0 ? 'bg-[#0E0E10]' : 'bg-[#171719]'
+        toneClass: groupIndex % 2 === 0 ? 'bg-[#101114]' : 'bg-[#18191D]'
       });
     });
 
@@ -968,7 +1031,7 @@ const rowVisualInfo = useMemo(() => {
                         className={`border-b border-brand-border transition-colors border-l-[3px] border-r-[3px] ${
                           isRowCopied
                             ? 'bg-brand-accent/15 border-l-brand-accent border-r-brand-accent shadow-[inset_0_0_0_1px_rgba(0,238,118,0.35)]'
-                            : `${groupBgClass} ${groupBorderClass} border-r-transparent hover:bg-[#1E1E21] hover:border-l-brand-accent`
+                            : `${groupBgClass} ${groupBorderClass} border-r-transparent hover:bg-[#222329] hover:border-l-brand-accent`
                         }`}
                       >
                         <td className="p-[14px] px-6">

@@ -39,6 +39,34 @@ export const PRODUCTION_STEPS = [
   { name: 'Isolante', offsetDays: 7 },
 ];
 
+const EPO_EXCLUDED_STEPS = new Set([
+  'Estamparia',
+  'Solda Tanque',
+  'Pintura Tanque',
+]);
+
+function normalizeLinha(linha: string) {
+  return String(linha || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export function isEpoLine(linha: string) {
+  const normalizedLinha = normalizeLinha(linha);
+  return normalizedLinha === 'EPO' || normalizedLinha === 'EPOX' || normalizedLinha === 'EPOXI';
+}
+
+export function shouldIncludeProductionStep(linha: string, stepName: string) {
+  if (!isEpoLine(linha)) return true;
+  return !EPO_EXCLUDED_STEPS.has(stepName);
+}
+
+export function getProductionStepsForLinha(linha: string) {
+  return PRODUCTION_STEPS.filter((step) => shouldIncludeProductionStep(linha, step.name));
+}
+
 export function isWorkingDayDefault(date: Date) {
   const day = date.getDay();
   // 0 is Sunday, 6 is Saturday
@@ -79,7 +107,9 @@ export function subtractValidDays(startDate: Date, daysToSubtract: number, confi
 
 export function generateStepsForOP(rawOP: RawOP, config: ValidDaysConfig): OPStep[] {
   const mfDate = parseISO(rawOP.data_mf);
-  return PRODUCTION_STEPS.map((stepConfig) => {
+  const stepsForLinha = getProductionStepsForLinha(rawOP.linha);
+
+  return stepsForLinha.map((stepConfig) => {
     const calcDate = subtractValidDays(mfDate, stepConfig.offsetDays, config);
     const dateStr = format(calcDate, 'yyyy-MM-dd');
     
