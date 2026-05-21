@@ -15,13 +15,14 @@ import { CalendarModal } from './components/CalendarModal';
 import { FilterBar } from './components/FilterBar';
 
 type SankhyaProgramRow = { op: string; data: string; setor: string; qtd: number; linha: string; };
-type ValidationStatus = 'OK' | 'Não programado' | 'Data divergente' | 'Quantidade divergente' | 'Duplicado' | 'Extra';
+type ValidationStatus = 'OK' | 'Programado parcial' | 'Não programado' | 'Data divergente' | 'Quantidade divergente' | 'Duplicado' | 'Extra';
 type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: string; dataSistema?: string; setor: string; qtdPainel?: number; qtdSistema?: number; linhaPainel?: string; linhaSistema?: string; observacao: string; };
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
 type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status';
 type SortDirection = 'asc' | 'desc';
 type SortConfig = { key: SortKey; direction: SortDirection } | null;
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
+const PARTIAL_STATUS: ValidationStatus = 'Programado parcial';
 
 type DashboardBucket = 'conforme' | 'divergente' | 'naoProgramado' | 'semValidacao';
 type DashboardGroupStats = Record<DashboardBucket, number>;
@@ -43,6 +44,7 @@ const createEmptyDashboardStats = (): DashboardGroupStats => ({
 const getDashboardBucket = (status?: ValidationStatus | 'Sem validação'): DashboardBucket => {
   if (!status || status === 'Sem validação') return 'semValidacao';
   if (status === 'OK') return 'conforme';
+  if (status === 'Programado parcial') return 'divergente';
   if (status === 'Não programado') return 'naoProgramado';
   return 'divergente';
 };
@@ -160,6 +162,7 @@ const STORAGE_KEYS = {
   sankhyaRows: 'itam_prog_sankhya_rows_v1',
   validationResults: 'itam_prog_validation_results_v1',
   showOnlyErrors: 'itam_prog_show_only_errors_v1',
+  showOnlyPartial: 'itam_prog_show_only_partial_v1',
 };
 
 const readStorage = <T,>(key: string, fallback: T): T => {
@@ -214,6 +217,7 @@ export default function App() {
   const [sankhyaRows, setSankhyaRows] = useState<SankhyaProgramRow[]>(() => readStorage(STORAGE_KEYS.sankhyaRows, []));
   const [validationResults, setValidationResults] = useState<ValidationResult[]>(() => readStorage(STORAGE_KEYS.validationResults, []));
   const [showOnlyErrors, setShowOnlyErrors] = useState<boolean>(() => readStorage(STORAGE_KEYS.showOnlyErrors, false));
+  const [showOnlyPartial, setShowOnlyPartial] = useState<boolean>(() => readStorage(STORAGE_KEYS.showOnlyPartial, false));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const validationFileInputRef = useRef<HTMLInputElement>(null);
@@ -250,6 +254,10 @@ export default function App() {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.showOnlyErrors, showOnlyErrors);
   }, [showOnlyErrors]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.showOnlyPartial, showOnlyPartial);
+  }, [showOnlyPartial]);
 
 
   const normalizeHeader = (value: string) =>
@@ -454,8 +462,41 @@ export default function App() {
       results.push({ status: 'Extra', op: first.op, dataSistema: first.data, setor: first.setor, qtdSistema: first.qtd, linhaSistema: first.linha, observacao: rows.length > 1 ? 'Existe no Sankhya, não existe no painel e aparece ' + rows.length + 'x no relatório.' : 'Existe no Sankhya, mas não existe na programação calculada pelo painel.' });
     });
 
+    const applyPartialStatusByOpSector = (items: ValidationResult[]) => {
+      const grouped = new Map<string, ValidationResult[]>();
+
+      items.forEach(item => {
+        if (!item.dataPainel) return;
+        const key = `${normalizeOp(item.op)}|${normalizeText(normalizeSectorName(item.setor))}`;
+        const list = grouped.get(key) || [];
+        list.push(item);
+        grouped.set(key, list);
+      });
+
+      grouped.forEach(groupItems => {
+        const okItems = groupItems.filter(item => item.status === 'OK');
+        const missingItems = groupItems.filter(item => item.status === 'Não programado');
+        if (okItems.length === 0 || missingItems.length === 0) return;
+
+        const qtdOk = okItems.reduce((sum, item) => sum + normalizeQty(item.qtdPainel || 0), 0);
+        const qtdFaltante = missingItems.reduce((sum, item) => sum + normalizeQty(item.qtdPainel || 0), 0);
+        const faltas = missingItems
+          .slice()
+          .sort((a, b) => (a.dataPainel || '').localeCompare(b.dataPainel || ''))
+          .map(item => `${formatToBRLDate(item.dataPainel || '')} - ${normalizeQty(item.qtdPainel || 0)} peça(s)`)
+          .join(' | ');
+
+        okItems.forEach(item => {
+          item.status = PARTIAL_STATUS;
+          item.observacao = `Parte deste OP + setor foi encontrada corretamente no Sankhya, mas ainda existe saldo não programado no mesmo setor. Programado: ${qtdOk} peça(s). Faltante: ${qtdFaltante} peça(s). Falta programar: ${faltas}.`;
+        });
+      });
+    };
+
+    applyPartialStatusByOpSector(results);
+
     results.sort((a, b) => {
-      const statusOrder: Record<ValidationStatus, number> = { 'Não programado': 0, 'Data divergente': 1, 'Quantidade divergente': 2, Duplicado: 3, Extra: 4, OK: 5 };
+      const statusOrder: Record<ValidationStatus, number> = { 'Não programado': 0, 'Programado parcial': 1, 'Data divergente': 2, 'Quantidade divergente': 3, Duplicado: 4, Extra: 5, OK: 6 };
       if (statusOrder[a.status] !== statusOrder[b.status]) return statusOrder[a.status] - statusOrder[b.status];
       if (a.op !== b.op) return a.op.localeCompare(b.op, undefined, { numeric: true });
       return (a.dataPainel || a.dataSistema || '').localeCompare(b.dataPainel || b.dataSistema || '');
@@ -742,8 +783,13 @@ export default function App() {
   };
 
   const visibleValidationResults = useMemo(() => {
-    return showOnlyErrors ? validationResults.filter(result => ERROR_STATUSES.includes(result.status)) : validationResults;
-  }, [validationResults, showOnlyErrors]);
+    if (!showOnlyErrors && !showOnlyPartial) return validationResults;
+    return validationResults.filter(result => {
+      const isError = ERROR_STATUSES.includes(result.status);
+      const isPartial = result.status === PARTIAL_STATUS;
+      return (showOnlyErrors && isError) || (showOnlyPartial && isPartial);
+    });
+  }, [validationResults, showOnlyErrors, showOnlyPartial]);
 
   const validationCounts = useMemo(() => {
     return validationResults.reduce((acc, result) => {
@@ -770,12 +816,15 @@ export default function App() {
 
 
   const baseDisplayedSteps = useMemo(() => {
-    if (!showOnlyErrors || sankhyaRows.length === 0) return defaultSortedSteps;
+    if ((!showOnlyErrors && !showOnlyPartial) || sankhyaRows.length === 0) return defaultSortedSteps;
     return defaultSortedSteps.filter(step => {
       const status = getMainValidationInfo(step)?.status;
-      return status ? ERROR_STATUSES.includes(status) : false;
+      if (!status) return false;
+      const isError = ERROR_STATUSES.includes(status);
+      const isPartial = status === PARTIAL_STATUS;
+      return (showOnlyErrors && isError) || (showOnlyPartial && isPartial);
     });
-  }, [defaultSortedSteps, showOnlyErrors, sankhyaRows.length, validationByPanelKey]);
+  }, [defaultSortedSteps, showOnlyErrors, showOnlyPartial, sankhyaRows.length, validationByPanelKey]);
 
   const compareValues = (a: string | number, b: string | number) => {
     if (typeof a === 'number' && typeof b === 'number') return a - b;
@@ -955,10 +1004,16 @@ const rowVisualInfo = useMemo(() => {
             <span>Agenda de Produção</span>
             <div className="flex items-center gap-4">
               {sankhyaRows.length > 0 && (
-                <label className="flex items-center gap-2 normal-case tracking-normal text-white text-xs font-semibold">
-                  <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="accent-[#00EE76]" />
-                  Exibir erros
-                </label>
+                <>
+                  <label className="flex items-center gap-2 normal-case tracking-normal text-white text-xs font-semibold">
+                    <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="accent-[#00EE76]" />
+                    Exibir erros
+                  </label>
+                  <label className="flex items-center gap-2 normal-case tracking-normal text-white text-xs font-semibold">
+                    <input type="checkbox" checked={showOnlyPartial} onChange={(e) => setShowOnlyPartial(e.target.checked)} className="accent-[#00EE76]" />
+                    Programado parcial
+                  </label>
+                </>
               )}
               <span>{filters.dateStart || filters.dateEnd ? `${filters.dateStart ? formatToBRLDate(filters.dateStart) : 'Início'} até ${filters.dateEnd ? formatToBRLDate(filters.dateEnd) : 'Fim'}` : 'Todas as Datas'}</span>
             </div>
@@ -1144,7 +1199,7 @@ const rowVisualInfo = useMemo(() => {
                         </td>
                         <td className="p-[14px] px-6">
                           {validationInfo ? (
-                            <span title={validationInfo.observacao} className={`rounded-md border px-2 py-1 text-[11px] font-extrabold ${validationInfo.status === 'OK' ? 'border-green-500/30 bg-green-500/10 text-green-300' : validationInfo.status === 'Não programado' ? 'border-red-500/30 bg-red-500/10 text-red-300' : validationInfo.status === 'Data divergente' || validationInfo.status === 'Quantidade divergente' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-purple-500/30 bg-purple-500/10 text-purple-300'}`}>
+                            <span title={validationInfo.observacao} className={`rounded-md border px-2 py-1 text-[11px] font-extrabold ${validationInfo.status === 'OK' ? 'border-green-500/30 bg-green-500/10 text-green-300' : validationInfo.status === 'Programado parcial' ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : validationInfo.status === 'Não programado' ? 'border-red-500/30 bg-red-500/10 text-red-300' : validationInfo.status === 'Data divergente' || validationInfo.status === 'Quantidade divergente' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-purple-500/30 bg-purple-500/10 text-purple-300'}`}>
                               {validationInfo.status}
                             </span>
                           ) : (
@@ -1188,15 +1243,22 @@ const rowVisualInfo = useMemo(() => {
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div className="flex flex-wrap gap-2">
                   <span className="rounded-md border border-brand-border bg-brand-bg px-3 py-2 text-xs font-bold text-white">OK: {validationCounts.OK || 0}</span>
+                  <span className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300">Programado parcial: {validationCounts['Programado parcial'] || 0}</span>
                   <span className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300">Não programado: {validationCounts['Não programado'] || 0}</span>
                   <span className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs font-bold text-yellow-300">Data divergente: {validationCounts['Data divergente'] || 0}</span>
                   <span className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs font-bold text-yellow-300">Extra: {validationCounts.Extra || 0}</span>
                   <span className="rounded-md border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs font-bold text-purple-300">Duplicado: {validationCounts.Duplicado || 0}</span>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-white font-semibold">
-                  <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="accent-[#00EE76]" />
-                  Exibir erros
-                </label>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 text-sm text-white font-semibold">
+                    <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="accent-[#00EE76]" />
+                    Exibir erros
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-white font-semibold">
+                    <input type="checkbox" checked={showOnlyPartial} onChange={(e) => setShowOnlyPartial(e.target.checked)} className="accent-[#00EE76]" />
+                    Programado parcial
+                  </label>
+                </div>
               </div>
               <div className="flex flex-col md:flex-row gap-3 md:items-center">
                 <input type="file" accept=".xls,.xlsx" className="hidden" ref={validationFileInputRef} onChange={handleValidationFileUpload} />
@@ -1220,7 +1282,7 @@ const rowVisualInfo = useMemo(() => {
                   </thead>
                   <tbody>
                     {visibleValidationResults.map((result, index) => {
-                      const statusClass = result.status === 'OK' ? 'border-green-500/30 bg-green-500/10 text-green-300' : result.status === 'Não programado' ? 'border-red-500/30 bg-red-500/10 text-red-300' : result.status === 'Data divergente' || result.status === 'Quantidade divergente' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : result.status === 'Extra' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-purple-500/30 bg-purple-500/10 text-purple-300';
+                      const statusClass = result.status === 'OK' ? 'border-green-500/30 bg-green-500/10 text-green-300' : result.status === 'Programado parcial' ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : result.status === 'Não programado' ? 'border-red-500/30 bg-red-500/10 text-red-300' : result.status === 'Data divergente' || result.status === 'Quantidade divergente' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : result.status === 'Extra' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-purple-500/30 bg-purple-500/10 text-purple-300';
                       return (
                         <tr key={result.status + '_' + result.op + '_' + result.setor + '_' + index} className="border-b border-brand-border hover:bg-[#1A1A1D]">
                           <td className="p-3 px-4"><span className={'rounded-md border px-2 py-1 text-[11px] font-extrabold ' + statusClass}>{result.status}</span></td>
