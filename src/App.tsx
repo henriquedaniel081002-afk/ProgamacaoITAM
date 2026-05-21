@@ -18,6 +18,10 @@ type SankhyaProgramRow = { op: string; data: string; setor: string; qtd: number;
 type ValidationStatus = 'OK' | 'Não programado' | 'Data divergente' | 'Quantidade divergente' | 'Duplicado' | 'Extra';
 type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: string; dataSistema?: string; setor: string; qtdPainel?: number; qtdSistema?: number; linhaPainel?: string; linhaSistema?: string; observacao: string; };
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
+type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status' | 'observacao';
+type SortDirection = 'asc' | 'desc';
+type SortConfig = { key: SortKey; direction: SortDirection } | null;
+type OperationalObservation = { text: string; hasObservation: boolean };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 
 type DashboardBucket = 'conforme' | 'divergente' | 'naoProgramado' | 'semValidacao';
@@ -222,6 +226,7 @@ export default function App() {
     linha: '',
     op: ''
   });
+  const [sortConfig, setSortConfig] = useState<SortConfig>(null);
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.validDaysConfig, validDaysConfig);
@@ -679,7 +684,7 @@ export default function App() {
 
   const sectorFilterOptions = useMemo(() => getSectorFilterOptions(), []);
 
-  const sortedSteps = useMemo(() => {
+  const defaultSortedSteps = useMemo(() => {
     const groupFirstDate = new Map<string, string>();
     filteredSteps.forEach(step => {
       const groupKey = getGroupedStepKey(step);
@@ -712,13 +717,15 @@ export default function App() {
     });
   }, [filteredSteps]);
 
+  const filteredStepKeys = useMemo(() => new Set(filteredSteps.map(getUniqueStepKey)), [filteredSteps]);
+
   const duplicateOpCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    sortedSteps.forEach(step => {
+    defaultSortedSteps.forEach(step => {
       counts.set(step.op, (counts.get(step.op) || 0) + 1);
     });
     return counts;
-  }, [sortedSteps]);
+  }, [defaultSortedSteps]);
 
   const getRowKey = (step: OPStep) => `${step.op}|${step.data_mf}|${step.usedDate}|${step.stepName}|${step.qtd_mf}|${step.linha}`;
 
@@ -763,13 +770,126 @@ export default function App() {
     return { status: result.status, dataSistema: result.dataSistema, observacao: result.observacao };
   };
 
-  const displayedSteps = useMemo(() => {
-    if (!showOnlyErrors || sankhyaRows.length === 0) return sortedSteps;
-    return sortedSteps.filter(step => {
+  const operationalObservations = useMemo(() => {
+    const formatQty = (qty: number) => Number.isInteger(qty) ? String(qty) : String(qty).replace('.', ',');
+    const byRow = new Map<string, OperationalObservation>();
+
+    calculatedSteps.forEach(step => {
+      const currentKey = getUniqueStepKey(step);
+      const messages: string[] = [];
+
+      const sameSectorContinuations = calculatedSteps
+        .filter(other =>
+          other !== step &&
+          normalizeOp(other.op) === normalizeOp(step.op) &&
+          other.stepName === step.stepName &&
+          !filteredStepKeys.has(getUniqueStepKey(other))
+        )
+        .sort((a, b) => a.usedDate.localeCompare(b.usedDate));
+
+      if (sameSectorContinuations.length > 0) {
+        const details = sameSectorContinuations
+          .map(other => `${formatToBRLDate(other.usedDate)} - ${formatQty(Number(other.qtd_mf))} peças`)
+          .join(' | ');
+        messages.push(`Continua em ${step.stepName}: ${details}`);
+      }
+
+      const linkedGroup = getLinkedSectorGroup(step.stepName);
+      if (linkedGroup) {
+        const currentSectorIndex = linkedGroup.sectors.indexOf(step.stepName);
+        const nextSectors = linkedGroup.sectors.slice(currentSectorIndex + 1);
+        const nextSteps = calculatedSteps
+          .filter(other =>
+            normalizeOp(other.op) === normalizeOp(step.op) &&
+            nextSectors.includes(other.stepName)
+          )
+          .sort((a, b) => {
+            const sectorCompare = nextSectors.indexOf(a.stepName) - nextSectors.indexOf(b.stepName);
+            if (sectorCompare !== 0) return sectorCompare;
+            return a.usedDate.localeCompare(b.usedDate);
+          });
+
+        if (nextSteps.length > 0) {
+          const details = nextSteps
+            .map(other => `${other.stepName} ${formatToBRLDate(other.usedDate)} - ${formatQty(Number(other.qtd_mf))} peças`)
+            .join(' → ');
+          messages.push(`Próximas etapas: ${details}`);
+        }
+      }
+
+      byRow.set(currentKey, {
+        text: messages.join('. '),
+        hasObservation: messages.length > 0,
+      });
+    });
+
+    return byRow;
+  }, [calculatedSteps, filteredStepKeys]);
+
+  const getOperationalObservation = (step: OPStep) =>
+    operationalObservations.get(getUniqueStepKey(step)) || { text: '', hasObservation: false };
+
+  const baseDisplayedSteps = useMemo(() => {
+    if (!showOnlyErrors || sankhyaRows.length === 0) return defaultSortedSteps;
+    return defaultSortedSteps.filter(step => {
       const status = getMainValidationInfo(step)?.status;
       return status ? ERROR_STATUSES.includes(status) : false;
     });
-  }, [sortedSteps, showOnlyErrors, sankhyaRows.length, validationByPanelKey]);
+  }, [defaultSortedSteps, showOnlyErrors, sankhyaRows.length, validationByPanelKey]);
+
+  const compareValues = (a: string | number, b: string | number) => {
+    if (typeof a === 'number' && typeof b === 'number') return a - b;
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  };
+
+  const getSortValue = (step: OPStep, key: SortKey): string | number => {
+    if (key === 'op') return step.op;
+    if (key === 'usedDate') return step.usedDate;
+    if (key === 'qtd_mf') return normalizeQty(step.qtd_mf);
+    if (key === 'stepName') return step.stepName;
+    if (key === 'linha') return step.linha || '';
+    if (key === 'status') return getMainValidationInfo(step)?.status || 'Sem validação';
+    if (key === 'observacao') return getOperationalObservation(step).text || '';
+    return '';
+  };
+
+  const displayedSteps = useMemo(() => {
+    if (!sortConfig) return baseDisplayedSteps;
+
+    return [...baseDisplayedSteps].sort((a, b) => {
+      const primary = compareValues(getSortValue(a, sortConfig.key), getSortValue(b, sortConfig.key));
+      const direction = sortConfig.direction === 'asc' ? 1 : -1;
+      if (primary !== 0) return primary * direction;
+      return a.op.localeCompare(b.op, undefined, { numeric: true }) || a.usedDate.localeCompare(b.usedDate) || a.stepName.localeCompare(b.stepName);
+    });
+  }, [baseDisplayedSteps, sortConfig, operationalObservations, validationByPanelKey, sankhyaRows.length]);
+
+  const handleSort = (key: SortKey) => {
+    setSortConfig(current => {
+      if (!current || current.key !== key) return { key, direction: 'asc' };
+      if (current.direction === 'asc') return { key, direction: 'desc' };
+      return null;
+    });
+  };
+
+  const getSortIndicator = (key: SortKey) => {
+    if (!sortConfig || sortConfig.key !== key) return '↕';
+    return sortConfig.direction === 'asc' ? '↑' : '↓';
+  };
+
+  const renderSortableHeader = (label: string, key: SortKey, className = '') => (
+    <th className={`p-3 px-6 font-bold ${className}`}>
+      <button
+        type="button"
+        onClick={() => handleSort(key)}
+        className="flex items-center gap-2 text-left hover:text-brand-accent focus:text-brand-accent focus:outline-none transition-colors"
+        title={`Ordenar por ${label}`}
+      >
+        <span>{label}</span>
+        <span className="text-[13px]">{getSortIndicator(key)}</span>
+      </button>
+    </th>
+  );
 
   
   const dashboardStats = useMemo(() => {
@@ -905,13 +1025,13 @@ const rowVisualInfo = useMemo(() => {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-0">
+          <div className="flex-1 overflow-auto p-0">
             {activeTab === 'dashboard' ? (
               <div className="p-6 overflow-y-auto">
                 <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-6 items-start">
                   <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
                     {dashboardStats.map(item => {
-                      const total = Object.values(item.stats).reduce((a, b) => a + b, 0);
+                      const total = Object.values(item.stats).reduce<number>((a, b) => a + Number(b), 0);
                       const segments = buildDonutSegments(item.stats, total);
 
                       return (
@@ -966,7 +1086,7 @@ const rowVisualInfo = useMemo(() => {
                               <div key={bucket.key} className="flex items-center justify-between gap-3 text-sm">
                                 <span className="text-white font-semibold">{bucket.label}</span>
                                 <span className="text-brand-muted font-mono text-right whitespace-nowrap">
-                                  {item.stats[bucket.key]} ({total ? ((item.stats[bucket.key] / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)
+                                  {item.stats[bucket.key]} ({total ? ((Number(item.stats[bucket.key]) / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)
                                 </span>
                               </div>
                             ))}
@@ -1001,15 +1121,16 @@ const rowVisualInfo = useMemo(() => {
                 <p className="text-brand-muted text-sm mt-1">Gere a programação ou altere os filtros.</p>
               </div>
             ) : (
-              <table className="w-full border-collapse">
+              <table className="w-full min-w-[1280px] border-collapse">
                 <thead className="sticky top-0 bg-brand-bg z-10 border-b border-brand-border">
                   <tr className="text-left text-[11px] uppercase tracking-widest text-brand-muted">
-                    <th className="p-3 px-6 font-bold w-[180px]">OP</th>
-                    <th className="p-3 px-6 font-bold w-[190px]">Data Programada</th>
-                    <th className="p-3 px-6 font-bold w-[120px]">QTD</th>
-                    <th className="p-3 px-6 font-bold">Setor</th>
-                    <th className="p-3 px-6 font-bold w-[90px]">Linha</th>
-                    <th className="p-3 px-6 font-bold w-[170px]">Status</th>
+                    {renderSortableHeader('OP', 'op', 'w-[180px]')}
+                    {renderSortableHeader('Data Programada', 'usedDate', 'w-[190px]')}
+                    {renderSortableHeader('QTD', 'qtd_mf', 'w-[120px]')}
+                    {renderSortableHeader('Setor', 'stepName')}
+                    {renderSortableHeader('Linha', 'linha', 'w-[90px]')}
+                    {renderSortableHeader('Status', 'status', 'w-[170px]')}
+                    {renderSortableHeader('Observação', 'observacao', 'min-w-[360px]')}
                   </tr>
                 </thead>
                 <tbody>
@@ -1023,6 +1144,7 @@ const rowVisualInfo = useMemo(() => {
                     const isCopiedOP = copiedValue === `OP:${step.op}`;
                     const isCopiedDATA = copiedValue === `DATA:${formattedDate}`;
                     const rowVisual = rowVisualInfo.get(rowKey);
+                    const operationalObservation = getOperationalObservation(step);
                     const groupBgClass = rowVisual?.toneClass || 'bg-brand-bg';
                     const groupBorderClass = rowVisual?.isFirstInGroup ? 'border-l-brand-accent' : 'border-l-transparent';
                     return (
@@ -1090,6 +1212,15 @@ const rowVisualInfo = useMemo(() => {
                             </span>
                           ) : (
                             <span className="text-brand-muted text-xs">Sem validação</span>
+                          )}
+                        </td>
+                        <td className="p-[14px] px-6 text-[12px] leading-relaxed">
+                          {operationalObservation.hasObservation ? (
+                            <span className="block max-w-[560px] rounded-lg border border-brand-accent/20 bg-brand-accent/10 px-3 py-2 text-brand-accent font-semibold">
+                              {operationalObservation.text}
+                            </span>
+                          ) : (
+                            <span className="text-brand-muted">-</span>
                           )}
                         </td>
                       </tr>
