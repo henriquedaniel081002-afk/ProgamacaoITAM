@@ -18,10 +18,9 @@ type SankhyaProgramRow = { op: string; data: string; setor: string; qtd: number;
 type ValidationStatus = 'OK' | 'Não programado' | 'Data divergente' | 'Quantidade divergente' | 'Duplicado' | 'Extra';
 type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: string; dataSistema?: string; setor: string; qtdPainel?: number; qtdSistema?: number; linhaPainel?: string; linhaSistema?: string; observacao: string; };
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
-type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status' | 'observacao';
+type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status';
 type SortDirection = 'asc' | 'desc';
 type SortConfig = { key: SortKey; direction: SortDirection } | null;
-type OperationalObservation = { text: string; hasObservation: boolean };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 
 type DashboardBucket = 'conforme' | 'divergente' | 'naoProgramado' | 'semValidacao';
@@ -717,7 +716,6 @@ export default function App() {
     });
   }, [filteredSteps]);
 
-  const filteredStepKeys = useMemo(() => new Set(filteredSteps.map(getUniqueStepKey)), [filteredSteps]);
 
   const duplicateOpCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -770,85 +768,6 @@ export default function App() {
     return { status: result.status, dataSistema: result.dataSistema, observacao: result.observacao };
   };
 
-  const operationalObservations = useMemo(() => {
-    const formatQty = (qty: number) => Number.isInteger(qty) ? String(qty) : String(qty).replace('.', ',');
-    const byRow = new Map<string, OperationalObservation>();
-    const stepsByOp = new Map<string, OPStep[]>();
-    const stepsByOpAndSector = new Map<string, OPStep[]>();
-
-    calculatedSteps.forEach(step => {
-      const opKey = normalizeOp(step.op);
-      const opSectorKey = `${opKey}|${step.stepName}`;
-
-      if (!stepsByOp.has(opKey)) {
-        stepsByOp.set(opKey, []);
-      }
-      stepsByOp.get(opKey)!.push(step);
-
-      if (!stepsByOpAndSector.has(opSectorKey)) {
-        stepsByOpAndSector.set(opSectorKey, []);
-      }
-      stepsByOpAndSector.get(opSectorKey)!.push(step);
-    });
-
-    stepsByOp.forEach(steps => {
-      steps.sort((a, b) => a.usedDate.localeCompare(b.usedDate) || a.stepName.localeCompare(b.stepName));
-    });
-
-    stepsByOpAndSector.forEach(steps => {
-      steps.sort((a, b) => a.usedDate.localeCompare(b.usedDate));
-    });
-
-    filteredSteps.forEach(step => {
-      const currentKey = getUniqueStepKey(step);
-      const opKey = normalizeOp(step.op);
-      const messages: string[] = [];
-
-      const sameSectorContinuations = (stepsByOpAndSector.get(`${opKey}|${step.stepName}`) || [])
-        .filter(other =>
-          getUniqueStepKey(other) !== currentKey &&
-          !filteredStepKeys.has(getUniqueStepKey(other))
-        );
-
-      if (sameSectorContinuations.length > 0) {
-        const details = sameSectorContinuations
-          .map(other => `${formatToBRLDate(other.usedDate)} - ${formatQty(Number(other.qtd_mf))} peças`)
-          .join(' | ');
-        messages.push(`Continua em ${step.stepName}: ${details}`);
-      }
-
-      const linkedGroup = getLinkedSectorGroup(step.stepName);
-      if (linkedGroup) {
-        const currentSectorIndex = linkedGroup.sectors.indexOf(step.stepName);
-        const nextSectors = linkedGroup.sectors.slice(currentSectorIndex + 1);
-
-        const nextSteps = (stepsByOp.get(opKey) || [])
-          .filter(other => nextSectors.includes(other.stepName))
-          .sort((a, b) => {
-            const sectorCompare = nextSectors.indexOf(a.stepName) - nextSectors.indexOf(b.stepName);
-            if (sectorCompare !== 0) return sectorCompare;
-            return a.usedDate.localeCompare(b.usedDate);
-          });
-
-        if (nextSteps.length > 0) {
-          const details = nextSteps
-            .map(other => `${other.stepName} ${formatToBRLDate(other.usedDate)} - ${formatQty(Number(other.qtd_mf))} peças`)
-            .join(' → ');
-          messages.push(`Próximas etapas: ${details}`);
-        }
-      }
-
-      byRow.set(currentKey, {
-        text: messages.join('. '),
-        hasObservation: messages.length > 0,
-      });
-    });
-
-    return byRow;
-  }, [calculatedSteps, filteredSteps, filteredStepKeys]);
-
-  const getOperationalObservation = (step: OPStep) =>
-    operationalObservations.get(getUniqueStepKey(step)) || { text: '', hasObservation: false };
 
   const baseDisplayedSteps = useMemo(() => {
     if (!showOnlyErrors || sankhyaRows.length === 0) return defaultSortedSteps;
@@ -870,7 +789,6 @@ export default function App() {
     if (key === 'stepName') return step.stepName;
     if (key === 'linha') return step.linha || '';
     if (key === 'status') return getMainValidationInfo(step)?.status || 'Sem validação';
-    if (key === 'observacao') return getOperationalObservation(step).text || '';
     return '';
   };
 
@@ -883,7 +801,7 @@ export default function App() {
       if (primary !== 0) return primary * direction;
       return a.op.localeCompare(b.op, undefined, { numeric: true }) || a.usedDate.localeCompare(b.usedDate) || a.stepName.localeCompare(b.stepName);
     });
-  }, [baseDisplayedSteps, sortConfig, operationalObservations, validationByPanelKey, sankhyaRows.length]);
+  }, [baseDisplayedSteps, sortConfig, validationByPanelKey, sankhyaRows.length]);
 
   const handleSort = (key: SortKey) => {
     setSortConfig(current => {
@@ -1151,7 +1069,6 @@ const rowVisualInfo = useMemo(() => {
                     {renderSortableHeader('Setor', 'stepName')}
                     {renderSortableHeader('Linha', 'linha', 'w-[90px]')}
                     {renderSortableHeader('Status', 'status', 'w-[170px]')}
-                    {renderSortableHeader('Observação', 'observacao', 'min-w-[360px]')}
                   </tr>
                 </thead>
                 <tbody>
@@ -1165,7 +1082,6 @@ const rowVisualInfo = useMemo(() => {
                     const isCopiedOP = copiedValue === `OP:${step.op}`;
                     const isCopiedDATA = copiedValue === `DATA:${formattedDate}`;
                     const rowVisual = rowVisualInfo.get(rowKey);
-                    const operationalObservation = getOperationalObservation(step);
                     const groupBgClass = rowVisual?.toneClass || 'bg-brand-bg';
                     const groupBorderClass = rowVisual?.isFirstInGroup ? 'border-l-brand-accent' : 'border-l-transparent';
                     return (
@@ -1233,15 +1149,6 @@ const rowVisualInfo = useMemo(() => {
                             </span>
                           ) : (
                             <span className="text-brand-muted text-xs">Sem validação</span>
-                          )}
-                        </td>
-                        <td className="p-[14px] px-6 text-[12px] leading-relaxed">
-                          {operationalObservation.hasObservation ? (
-                            <span className="block max-w-[560px] rounded-lg border border-brand-accent/20 bg-brand-accent/10 px-3 py-2 text-brand-accent font-semibold">
-                              {operationalObservation.text}
-                            </span>
-                          ) : (
-                            <span className="text-brand-muted">-</span>
                           )}
                         </td>
                       </tr>
