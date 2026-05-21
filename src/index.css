@@ -15,3 +15,56 @@ body {
   background-color: var(--color-brand-bg);
   color: #FFFFFF;
 }
+
+
+/* Ajuste responsivo da tabela principal conforme zoom e largura da página */
+.programacao-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  font-size: clamp(11px, 0.72vw, 13px);
+}
+
+.programacao-table th,
+.programacao-table td {
+  padding: clamp(8px, 0.75vw, 14px) clamp(10px, 1.15vw, 24px);
+  vertical-align: middle;
+}
+
+.programacao-table th button {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.programacao-table th span,
+.programacao-table td span,
+.programacao-table td div {
+  min-width: 0;
+}
+
+.programacao-table td {
+  overflow-wrap: anywhere;
+}
+
+.programacao-table td:nth-child(1),
+.programacao-table td:nth-child(2),
+.programacao-table td:nth-child(3),
+.programacao-table td:nth-child(5),
+.programacao-table td:nth-child(6) {
+  white-space: nowrap;
+}
+
+.programacao-table td:nth-child(4) {
+  white-space: normal;
+}
+
+@media (max-width: 1100px) {
+  .programacao-table {
+    font-size: 11px;
+  }
+
+  .programacao-table th,
+  .programacao-table td {
+    padding: 8px 8px;
+  }
+}

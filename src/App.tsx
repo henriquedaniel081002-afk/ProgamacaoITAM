@@ -1060,15 +1060,15 @@ const rowVisualInfo = useMemo(() => {
                 <p className="text-brand-muted text-sm mt-1">Gere a programação ou altere os filtros.</p>
               </div>
             ) : (
-              <table className="w-full min-w-[1280px] border-collapse">
+              <table className="programacao-table w-full border-collapse table-fixed">
                 <thead className="sticky top-0 bg-brand-bg z-10 border-b border-brand-border">
                   <tr className="text-left text-[11px] uppercase tracking-widest text-brand-muted">
-                    {renderSortableHeader('OP', 'op', 'w-[180px]')}
-                    {renderSortableHeader('Data Programada', 'usedDate', 'w-[190px]')}
-                    {renderSortableHeader('QTD', 'qtd_mf', 'w-[120px]')}
-                    {renderSortableHeader('Setor', 'stepName')}
-                    {renderSortableHeader('Linha', 'linha', 'w-[90px]')}
-                    {renderSortableHeader('Status', 'status', 'w-[170px]')}
+                    {renderSortableHeader('OP', 'op', 'w-[18%]')}
+                    {renderSortableHeader('Data Programada', 'usedDate', 'w-[18%]')}
+                    {renderSortableHeader('QTD', 'qtd_mf', 'w-[8%]')}
+                    {renderSortableHeader('Setor', 'stepName', 'w-[31%]')}
+                    {renderSortableHeader('Linha', 'linha', 'w-[10%]')}
+                    {renderSortableHeader('Status', 'status', 'w-[15%]')}
                   </tr>
                 </thead>
                 <tbody>
