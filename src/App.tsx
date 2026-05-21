@@ -773,19 +773,42 @@ export default function App() {
   const operationalObservations = useMemo(() => {
     const formatQty = (qty: number) => Number.isInteger(qty) ? String(qty) : String(qty).replace('.', ',');
     const byRow = new Map<string, OperationalObservation>();
+    const stepsByOp = new Map<string, OPStep[]>();
+    const stepsByOpAndSector = new Map<string, OPStep[]>();
 
     calculatedSteps.forEach(step => {
+      const opKey = normalizeOp(step.op);
+      const opSectorKey = `${opKey}|${step.stepName}`;
+
+      if (!stepsByOp.has(opKey)) {
+        stepsByOp.set(opKey, []);
+      }
+      stepsByOp.get(opKey)!.push(step);
+
+      if (!stepsByOpAndSector.has(opSectorKey)) {
+        stepsByOpAndSector.set(opSectorKey, []);
+      }
+      stepsByOpAndSector.get(opSectorKey)!.push(step);
+    });
+
+    stepsByOp.forEach(steps => {
+      steps.sort((a, b) => a.usedDate.localeCompare(b.usedDate) || a.stepName.localeCompare(b.stepName));
+    });
+
+    stepsByOpAndSector.forEach(steps => {
+      steps.sort((a, b) => a.usedDate.localeCompare(b.usedDate));
+    });
+
+    filteredSteps.forEach(step => {
       const currentKey = getUniqueStepKey(step);
+      const opKey = normalizeOp(step.op);
       const messages: string[] = [];
 
-      const sameSectorContinuations = calculatedSteps
+      const sameSectorContinuations = (stepsByOpAndSector.get(`${opKey}|${step.stepName}`) || [])
         .filter(other =>
-          other !== step &&
-          normalizeOp(other.op) === normalizeOp(step.op) &&
-          other.stepName === step.stepName &&
+          getUniqueStepKey(other) !== currentKey &&
           !filteredStepKeys.has(getUniqueStepKey(other))
-        )
-        .sort((a, b) => a.usedDate.localeCompare(b.usedDate));
+        );
 
       if (sameSectorContinuations.length > 0) {
         const details = sameSectorContinuations
@@ -798,11 +821,9 @@ export default function App() {
       if (linkedGroup) {
         const currentSectorIndex = linkedGroup.sectors.indexOf(step.stepName);
         const nextSectors = linkedGroup.sectors.slice(currentSectorIndex + 1);
-        const nextSteps = calculatedSteps
-          .filter(other =>
-            normalizeOp(other.op) === normalizeOp(step.op) &&
-            nextSectors.includes(other.stepName)
-          )
+
+        const nextSteps = (stepsByOp.get(opKey) || [])
+          .filter(other => nextSectors.includes(other.stepName))
           .sort((a, b) => {
             const sectorCompare = nextSectors.indexOf(a.stepName) - nextSectors.indexOf(b.stepName);
             if (sectorCompare !== 0) return sectorCompare;
@@ -824,7 +845,7 @@ export default function App() {
     });
 
     return byRow;
-  }, [calculatedSteps, filteredStepKeys]);
+  }, [calculatedSteps, filteredSteps, filteredStepKeys]);
 
   const getOperationalObservation = (step: OPStep) =>
     operationalObservations.get(getUniqueStepKey(step)) || { text: '', hasObservation: false };
