@@ -378,6 +378,7 @@ export default function App() {
 
     const systemMap = new Map<string, SankhyaProgramRow[]>();
     const systemByOpSector = new Map<string, SankhyaProgramRow[]>();
+    const systemByOpSectorQty = new Map<string, SankhyaProgramRow[]>();
     const systemByOp = new Map<string, SankhyaProgramRow[]>();
     const systemByOpDate = new Map<string, SankhyaProgramRow[]>();
 
@@ -394,6 +395,11 @@ export default function App() {
       const sectorList = systemByOpSector.get(opSectorKey) || [];
       sectorList.push(row);
       systemByOpSector.set(opSectorKey, sectorList);
+
+      const opSectorQtyKey = `${opSectorKey}|${normalizeQty(row.qtd)}`;
+      const sectorQtyList = systemByOpSectorQty.get(opSectorQtyKey) || [];
+      sectorQtyList.push(row);
+      systemByOpSectorQty.set(opSectorQtyKey, sectorQtyList);
 
       const opList = systemByOp.get(normalizedOp) || [];
       opList.push(row);
@@ -432,24 +438,25 @@ export default function App() {
     stepsForValidation.forEach(panelStep => {
       const exactKey = getValidationKey(panelStep.op, panelStep.usedDate, panelStep.stepName);
       const exactMatches = systemMap.get(exactKey) || [];
+      const qtdPainel = normalizeQty(panelStep.qtd_mf);
       const opSectorKey = `${normalizeOp(panelStep.op)}|${normalizeText(normalizeSectorName(panelStep.stepName))}`;
-      const sameOpSectorMatches = systemByOpSector.get(opSectorKey) || [];
+      const opSectorQtyKey = `${opSectorKey}|${qtdPainel}`;
+      const sameOpSectorQtyMatches = systemByOpSectorQty.get(opSectorQtyKey) || [];
 
-      if (exactMatches.length === 1) {
-        const match = exactMatches[0];
-        const qtdPainel = normalizeQty(panelStep.qtd_mf);
-        const qtdSistema = normalizeQty(match.qtd);
-        if (qtdPainel === qtdSistema) {
-          results.push({ status: 'OK', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: match.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: match.qtd, linhaPainel: panelStep.linha, linhaSistema: match.linha, observacao: 'Programação encontrada corretamente no Sankhya, incluindo a quantidade.' });
-        } else {
-          results.push({ status: 'Quantidade divergente', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: match.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: match.qtd, linhaPainel: panelStep.linha, linhaSistema: match.linha, observacao: 'OP, data e setor conferem, mas a quantidade está diferente no Sankhya.' });
-        }
-      } else if (exactMatches.length > 1) {
+      const exactQtyMatches = exactMatches.filter(match => normalizeQty(match.qtd) === qtdPainel);
+
+      if (exactQtyMatches.length === 1) {
+        const match = exactQtyMatches[0];
+        results.push({ status: 'OK', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: match.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: match.qtd, linhaPainel: panelStep.linha, linhaSistema: match.linha, observacao: 'Programação encontrada corretamente no Sankhya, incluindo data e quantidade.' });
+      } else if (exactQtyMatches.length > 1) {
+        const first = exactQtyMatches[0];
+        results.push({ status: 'Duplicado', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: first.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: first.qtd, linhaPainel: panelStep.linha, linhaSistema: first.linha, observacao: 'A mesma combinação OP + Data + Setor + Quantidade aparece ' + exactQtyMatches.length + 'x no relatório do Sankhya.' });
+      } else if (exactMatches.length > 0) {
         const first = exactMatches[0];
-        results.push({ status: 'Duplicado', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: first.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: first.qtd, linhaPainel: panelStep.linha, linhaSistema: first.linha, observacao: 'A mesma combinação OP + Data + Setor aparece ' + exactMatches.length + 'x no relatório do Sankhya.' });
-      } else if (sameOpSectorMatches.length > 0) {
-        const first = sameOpSectorMatches[0];
-        results.push({ status: 'Data divergente', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: first.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: first.qtd, linhaPainel: panelStep.linha, linhaSistema: first.linha, observacao: 'A OP e o setor existem no Sankhya, mas a data programada é diferente.' });
+        results.push({ status: 'Quantidade divergente', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: first.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: first.qtd, linhaPainel: panelStep.linha, linhaSistema: first.linha, observacao: 'OP, data e setor conferem, mas a quantidade está diferente no Sankhya.' });
+      } else if (sameOpSectorQtyMatches.length > 0) {
+        const first = sameOpSectorQtyMatches[0];
+        results.push({ status: 'Data divergente', op: panelStep.op, dataPainel: panelStep.usedDate, dataSistema: first.data, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, qtdSistema: first.qtd, linhaPainel: panelStep.linha, linhaSistema: first.linha, observacao: 'OP, setor e quantidade conferem, mas a data programada é diferente no Sankhya.' });
       } else {
         results.push({ status: 'Não programado', op: panelStep.op, dataPainel: panelStep.usedDate, setor: panelStep.stepName, qtdPainel: panelStep.qtd_mf, linhaPainel: panelStep.linha, observacao: buildNotProgrammedObservation(panelStep) });
       }
