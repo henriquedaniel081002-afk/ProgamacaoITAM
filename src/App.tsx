@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Calendar as CalendarIcon, Copy, Check, FlaskConical, X, FileCheck2, ChevronRight, Factory } from 'lucide-react';
+import { BarChart3, Calendar as CalendarIcon, Copy, Check, FileSpreadsheet, FlaskConical, X, FileCheck2, ChevronRight, Factory, Inbox, List, SlidersHorizontal, Upload, Zap } from 'lucide-react';
 import { 
   RawOP, 
   OPStep, 
@@ -23,6 +23,18 @@ type SortDirection = 'asc' | 'desc';
 type SortConfig = { key: SortKey; direction: SortDirection } | null;
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 const PARTIAL_STATUS: ValidationStatus = 'Programado parcial';
+type DisplayStatus = ValidationStatus | 'Sem validação';
+
+const STATUS_BADGE_CLASSES: Record<DisplayStatus, string> = {
+  OK: 'border-brand-accent/30 bg-brand-accent/10 text-brand-accent',
+  'Programado parcial': 'border-blue-400/30 bg-blue-400/10 text-blue-300',
+  'Não programado': 'border-red-400/30 bg-red-400/10 text-red-300',
+  'Data divergente': 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  'Quantidade divergente': 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  Duplicado: 'border-purple-400/30 bg-purple-400/10 text-purple-300',
+  Extra: 'border-orange-400/30 bg-orange-400/10 text-orange-300',
+  'Sem validação': 'border-brand-border bg-brand-surface/70 text-brand-muted',
+};
 
 type DashboardBucket = 'conforme' | 'divergente' | 'naoProgramado' | 'semValidacao';
 type DashboardGroupStats = Record<DashboardBucket, number>;
@@ -208,6 +220,7 @@ export default function App() {
   const [testSteps, setTestSteps] = useState<OPStep[]>([]);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'programacao' | 'dashboard'>('programacao');
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   // Somente a última linha copiada fica destacada.
   // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
   const [copiedRowKey, setCopiedRowKey] = useState<string | null>(null);
@@ -873,15 +886,15 @@ export default function App() {
   };
 
   const renderSortableHeader = (label: string, key: SortKey, className = '') => (
-    <th className={`p-3 px-6 font-bold ${className}`}>
+    <th className={`font-bold ${className}`}>
       <button
         type="button"
         onClick={() => handleSort(key)}
-        className="flex items-center gap-2 text-left hover:text-brand-accent focus:text-brand-accent focus:outline-none transition-colors"
+        className="tab-button flex items-center gap-2 rounded-md text-left transition-colors hover:text-brand-accent"
         title={`Ordenar por ${label}`}
       >
         <span>{label}</span>
-        <span className="text-[13px]">{getSortIndicator(key)}</span>
+        <span className="text-sm text-brand-accent/80">{getSortIndicator(key)}</span>
       </button>
     </th>
   );
@@ -920,10 +933,10 @@ const rowVisualInfo = useMemo(() => {
       }
 
       const groupIndex = groupSequence.get(groupKey) || 0;
-      info.set(rowKey, {
-        isFirstInGroup: firstRowByGroup.get(groupKey) === rowKey,
-        toneClass: groupIndex % 2 === 0 ? 'bg-[#101114]' : 'bg-[#18191D]'
-      });
+       info.set(rowKey, {
+         isFirstInGroup: firstRowByGroup.get(groupKey) === rowKey,
+         toneClass: groupIndex % 2 === 0 ? 'bg-brand-card/40' : 'bg-brand-panel/65'
+       });
     });
 
     return info;
@@ -932,16 +945,26 @@ const rowVisualInfo = useMemo(() => {
   const totalOpsUnique = new Set(displayedSteps.map(s => s.op)).size;
   const totalSectors = new Set(displayedSteps.map(s => s.stepName)).size;
   const totalDates = new Set(displayedSteps.map(s => s.usedDate)).size;
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   return (
-    <div className="h-screen w-full overflow-hidden flex flex-col font-sans">
-      {/* Header */}
-      <header className="h-16 bg-brand-card border-b border-brand-border flex items-center justify-between px-6 shrink-0 relative z-10">
-        <div className="font-[800] text-[1.2rem] text-brand-accent tracking-tight flex items-center gap-2">
-          PROGRAMAÇÃO DE PRODUÇÃO <span className="font-light opacity-50 text-white">- ITAM</span>
-        </div>
-        
-        <div className="flex gap-3">
+    <div className="app-shell flex h-dvh min-h-[520px] w-full flex-col overflow-hidden font-sans">
+      <header className="relative z-10 shrink-0 border-b border-brand-border bg-brand-panel/95 px-4 py-3 backdrop-blur sm:px-6">
+        <span className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-accent/70 to-transparent" />
+        <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/25 bg-brand-accent/10 text-brand-accent">
+              <Factory className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-muted">ITAM / PCP</p>
+              <h1 className="truncate text-lg font-bold tracking-tight text-white sm:text-xl">
+                Programação de <span className="text-brand-accent">Produção</span>
+              </h1>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           <input 
             type="file" 
             accept=".xlsx,.xls" 
@@ -950,50 +973,53 @@ const rowVisualInfo = useMemo(() => {
             onChange={handleFileUpload}
           />
           <button 
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex items-center gap-2 border border-brand-border bg-brand-card text-white hover:bg-brand-border transition-colors shadow-sm"
+            className="ui-button ui-button-secondary"
           >
-            📂 Importar Excel
+            <Upload className="h-4 w-4 text-brand-accent" /> Importar Excel
           </button>
           <button 
+            type="button"
             onClick={() => setIsCalendarOpen(true)}
-            className="px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex items-center gap-2 border border-brand-border bg-brand-card text-white hover:bg-brand-border transition-colors shadow-sm"
+            className="ui-button ui-button-secondary"
           >
-            📅 Calendário
+            <CalendarIcon className="h-4 w-4 text-brand-accent" /> Calendário
           </button>
           <button 
+            type="button"
             onClick={openValidationModal}
-            className="px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex items-center gap-2 border border-brand-border bg-brand-card text-white hover:bg-brand-border transition-colors shadow-sm"
+            className="ui-button ui-button-secondary"
           >
-            <FileCheck2 className="w-4 h-4" /> Validar programação
+            <FileCheck2 className="h-4 w-4 text-brand-accent" /> Validar
           </button>
           <button 
+            type="button"
             onClick={handleOpenTestModal}
-            className="px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex items-center gap-2 border border-brand-border bg-brand-card text-white hover:bg-brand-border transition-colors shadow-sm"
+            className="ui-button ui-button-secondary"
           >
-            <FlaskConical className="w-4 h-4" /> Testar programação
+            <FlaskConical className="h-4 w-4 text-brand-accent" /> Simular
           </button>
           <button 
+            type="button"
             onClick={handleGenerate}
-            className="px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex items-center gap-2 bg-brand-accent text-black border-none hover:opacity-90 transition-opacity whitespace-nowrap"
+            className="ui-button ui-button-primary col-span-2 sm:col-span-1"
           >
-            ⚡ Gerar Programação
+            <Zap className="h-4 w-4" /> Gerar Programação
           </button>
+        </div>
         </div>
       </header>
 
-      {/* Stats */}
-      <div className="h-[90px] grid grid-cols-2 md:grid-cols-4 gap-[1px] bg-brand-border border-b border-brand-border shrink-0">
-        <StatCard label="Total de OPs" value={totalOpsUnique || '-'} />
+      <div className="grid shrink-0 grid-cols-2 gap-px border-b border-brand-border bg-brand-border lg:grid-cols-4">
+        <StatCard label="Total de OPs" value={totalOpsUnique || '-'} accent />
         <StatCard label="Etapas Programadas" value={displayedSteps.length || '-'} />
         <StatCard label="Setores Ativos" value={totalSectors} />
         <StatCard label="Datas do Ciclo" value={totalDates || '-'} />
       </div>
 
-      {/* Main Layout */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-[280px] border-r border-brand-border p-5 flex flex-col gap-6 overflow-y-auto shrink-0 hidden md:flex">
+      <main className="flex min-h-0 flex-1 overflow-hidden">
+        <aside className="hidden w-[272px] shrink-0 flex-col overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-5 lg:flex">
           <FilterBar 
             filters={filters} 
             setFilters={setFilters} 
@@ -1001,56 +1027,93 @@ const rowVisualInfo = useMemo(() => {
           />
         </aside>
 
-        {/* Content Area */}
-        <section className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex items-center gap-2 px-6 py-3 border-b border-brand-border bg-[#111111]">
-            <button onClick={() => setActiveTab('programacao')} className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'programacao' ? 'bg-brand-accent text-black' : 'bg-brand-card text-white border border-brand-border'}`}>Programação</button>
-            <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'dashboard' ? 'bg-brand-accent text-black' : 'bg-brand-card text-white border border-brand-border'}`}>Dashboard</button>
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-border bg-brand-panel/55 px-4 py-3 sm:px-5">
+            <div role="tablist" aria-label="Visualização da programação" className="flex items-center gap-1 rounded-xl border border-brand-border bg-brand-panel p-1">
+              <button type="button" role="tab" aria-selected={activeTab === 'programacao'} onClick={() => setActiveTab('programacao')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'programacao' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+                <List className="h-4 w-4" /> Programação
+              </button>
+              <button type="button" role="tab" aria-selected={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'dashboard' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+                <BarChart3 className="h-4 w-4" /> Dashboard
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="ui-button ui-button-secondary lg:hidden"
+              onClick={() => setIsMobileFiltersOpen(current => !current)}
+              aria-controls="mobile-filters"
+              aria-expanded={isMobileFiltersOpen}
+            >
+              <SlidersHorizontal className="h-4 w-4 text-brand-accent" />
+              Filtros
+              {activeFilterCount > 0 && <span className="rounded-full bg-brand-accent px-1.5 py-0.5 text-[10px] font-bold text-black">{activeFilterCount}</span>}
+            </button>
           </div>
-          <div className="p-4 px-6 border-b border-brand-border text-[12px] font-bold uppercase text-brand-muted flex justify-between shrink-0 tracking-widest">
-            <span>Agenda de Produção</span>
-            <div className="flex items-center gap-4">
+
+          {isMobileFiltersOpen && (
+            <aside id="mobile-filters" className="max-h-[55vh] shrink-0 overflow-y-auto border-b border-brand-border bg-brand-card p-4 lg:hidden">
+              <FilterBar filters={filters} setFilters={setFilters} sectors={sectorFilterOptions} />
+            </aside>
+          )}
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-brand-border px-4 py-3 sm:px-5">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Agenda de produção</p>
+              <p className="mt-1 text-xs text-brand-soft">
+                {displayedSteps.length} etapa(s) exibida(s)
+                {activeFilterCount > 0 && ` / ${activeFilterCount} filtro(s) ativo(s)`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
               {sankhyaRows.length > 0 && (
                 <>
-                  <label className="flex items-center gap-2 normal-case tracking-normal text-white text-xs font-semibold">
-                    <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="accent-[#00EE76]" />
+                  <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-white">
+                    <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />
                     Exibir erros
                   </label>
-                  <label className="flex items-center gap-2 normal-case tracking-normal text-white text-xs font-semibold">
-                    <input type="checkbox" checked={showOnlyPartial} onChange={(e) => setShowOnlyPartial(e.target.checked)} className="accent-[#00EE76]" />
+                  <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-white">
+                    <input type="checkbox" checked={showOnlyPartial} onChange={(e) => setShowOnlyPartial(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />
                     Programado parcial
                   </label>
                 </>
               )}
-              <span>{filters.dateStart || filters.dateEnd ? `${filters.dateStart ? formatToBRLDate(filters.dateStart) : 'Início'} até ${filters.dateEnd ? formatToBRLDate(filters.dateEnd) : 'Fim'}` : 'Todas as Datas'}</span>
+              <span className="rounded-lg border border-brand-border/70 bg-brand-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-brand-muted">{filters.dateStart || filters.dateEnd ? `${filters.dateStart ? formatToBRLDate(filters.dateStart) : 'Início'} até ${filters.dateEnd ? formatToBRLDate(filters.dateEnd) : 'Fim'}` : 'Todas as datas'}</span>
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto p-0">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {activeTab === 'dashboard' ? (
-              <div className="p-6 overflow-y-auto">
-                <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-6 items-start">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
+              displayedSteps.length === 0 ? (
+                <EmptyState
+                  icon={BarChart3}
+                  title="Dashboard sem dados para exibir"
+                  description={calculatedSteps.length === 0 ? 'Importe o arquivo e gere a programação para visualizar indicadores por setor.' : 'Ajuste os filtros para visualizar os indicadores disponíveis.'}
+                />
+              ) : (
+              <div className="h-full overflow-y-auto p-4 sm:p-5">
+                <div className="grid grid-cols-1 items-start gap-5 2xl:grid-cols-[1fr_270px]">
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 3xl:grid-cols-3">
                     {dashboardStats.map(item => {
                       const total = Object.values(item.stats).reduce<number>((a, b) => a + Number(b), 0);
                       const segments = buildDonutSegments(item.stats, total);
 
                       return (
-                        <div key={item.group} className="border border-brand-border rounded-xl bg-[#121214] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.18)] min-h-[250px] flex flex-col justify-between">
-                          <div className="flex items-start justify-between gap-4 mb-5">
+                        <article key={item.group} className="panel-shadow flex min-h-[248px] flex-col justify-between rounded-2xl border border-brand-border bg-brand-card p-4">
+                          <div className="mb-5 flex items-start justify-between gap-4">
                             <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-11 h-11 rounded-full bg-brand-accent/15 border border-brand-accent/20 flex items-center justify-center text-brand-accent shrink-0">
-                                <Factory className="w-5 h-5" />
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent">
+                                <Factory className="h-5 w-5" />
                               </div>
-                              <h3 className="text-white font-extrabold text-base leading-tight break-words">{item.group}</h3>
+                              <h3 className="break-words text-sm font-bold leading-tight text-white">{item.group}</h3>
                             </div>
-                            <ChevronRight className="w-5 h-5 text-brand-muted shrink-0 mt-2" />
+                            <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-brand-muted" />
                           </div>
 
-                          <div className="flex items-center gap-5 mb-5">
-                            <div className="relative w-24 h-24 shrink-0">
-                              <svg viewBox="0 0 42 42" className="w-24 h-24 -rotate-90">
-                                <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#252529" strokeWidth="5" />
+                          <div className="mb-5 flex items-center gap-5">
+                            <div className="relative h-24 w-24 shrink-0">
+                              <svg viewBox="0 0 42 42" className="h-24 w-24 -rotate-90">
+                                <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#27303A" strokeWidth="5" />
                                 {segments.map(segment => (
                                   <circle
                                     key={segment.key}
@@ -1067,64 +1130,67 @@ const rowVisualInfo = useMemo(() => {
                                 ))}
                               </svg>
                               <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                                <span className="text-white text-lg font-black leading-none">{total}</span>
-                                <span className="text-[10px] text-brand-muted font-bold">total</span>
+                                <span className="text-xl font-bold leading-none text-white">{total}</span>
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-muted">total</span>
                               </div>
                             </div>
 
-                            <div className="space-y-2 min-w-0 flex-1">
+                            <div className="min-w-0 flex-1 space-y-2">
                               {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
-                                <div key={bucket.key} className="grid grid-cols-[12px_1fr] items-center gap-2 text-sm">
-                                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: bucket.color }} />
-                                  <span className="text-white font-semibold truncate">{bucket.label}</span>
+                                <div key={bucket.key} className="grid grid-cols-[10px_1fr] items-center gap-2 text-xs">
+                                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: bucket.color }} />
+                                  <span className="truncate font-semibold text-brand-soft">{bucket.label}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
 
-                          <div className="border-t border-brand-border/70 pt-3 space-y-2">
+                          <div className="space-y-2 border-t border-brand-border/70 pt-3">
                             {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
-                              <div key={bucket.key} className="flex items-center justify-between gap-3 text-sm">
-                                <span className="text-white font-semibold">{bucket.label}</span>
-                                <span className="text-brand-muted font-mono text-right whitespace-nowrap">
+                              <div key={bucket.key} className="flex items-center justify-between gap-3 text-xs">
+                                <span className="font-medium text-brand-soft">{bucket.label}</span>
+                                <span className="whitespace-nowrap text-right font-mono text-brand-muted">
                                   {item.stats[bucket.key]} ({total ? ((Number(item.stats[bucket.key]) / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)
                                 </span>
                               </div>
                             ))}
                           </div>
 
-                          <div className="mt-4 text-right text-brand-muted text-sm">{total} registros</div>
-                        </div>
+                          <div className="mt-4 text-right text-xs text-brand-muted">{total} registros</div>
+                        </article>
                       );
                     })}
                   </div>
 
-                  <aside className="border border-brand-border rounded-xl bg-[#121214] p-5 xl:sticky xl:top-4">
-                    <h3 className="text-brand-muted text-xs font-black uppercase tracking-[0.25em] mb-4">Legenda</h3>
+                  <aside className="rounded-2xl border border-brand-border bg-brand-card p-4 2xl:sticky 2xl:top-4">
+                    <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.24em] text-brand-muted">Legenda</h3>
                     <div className="space-y-3">
                       {DASHBOARD_BUCKETS.map(bucket => (
-                        <div key={bucket.key} className="rounded-lg bg-[#1A1A1D] border border-brand-border/70 p-4">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="w-4 h-4 rounded-full" style={{ backgroundColor: bucket.color }} />
-                            <span className="text-white font-extrabold text-sm">{bucket.label}</span>
+                        <div key={bucket.key} className="rounded-xl border border-brand-border/70 bg-brand-panel/70 p-3.5">
+                          <div className="mb-2 flex items-center gap-3">
+                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: bucket.color }} />
+                            <span className="text-sm font-semibold text-white">{bucket.label}</span>
                           </div>
-                          <p className="text-brand-muted text-xs leading-relaxed pl-7">{bucket.description}</p>
+                          <p className="pl-6 text-xs leading-relaxed text-brand-muted">{bucket.description}</p>
                         </div>
                       ))}
                     </div>
                   </aside>
                 </div>
               </div>
+              )
             ) : displayedSteps.length === 0 ? (
-              <div className="py-20 text-center flex flex-col items-center justify-center opacity-50">
-                <CalendarIcon className="w-12 h-12 text-brand-muted mb-4" />
-                <h3 className="text-white font-medium text-lg">Nenhuma programação encontrada</h3>
-                <p className="text-brand-muted text-sm mt-1">Gere a programação ou altere os filtros.</p>
-              </div>
+              <EmptyState
+                icon={rawOPs.length === 0 ? FileSpreadsheet : calculatedSteps.length === 0 ? CalendarIcon : SlidersHorizontal}
+                title={rawOPs.length === 0 ? 'Importe ordens para começar' : calculatedSteps.length === 0 ? 'Programação pronta para ser gerada' : 'Nenhuma etapa encontrada'}
+                description={rawOPs.length === 0 ? 'Importe um Excel com OP, linha, data de montagem final e quantidade.' : calculatedSteps.length === 0 ? 'Clique em Gerar Programação para calcular as etapas de produção.' : 'Revise os filtros aplicados ou a exibição de validações.'}
+              />
             ) : (
-              <table className="programacao-table w-full border-collapse table-fixed">
-                <thead className="sticky top-0 bg-brand-bg z-10 border-b border-brand-border">
-                  <tr className="text-left text-[11px] uppercase tracking-widest text-brand-muted">
+              <div className="h-full p-3 sm:p-4">
+                <div className="panel-shadow h-full overflow-auto rounded-2xl border border-brand-border bg-brand-card/60">
+              <table className="programacao-table border-collapse">
+                <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                  <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
                     {renderSortableHeader('OP', 'op', 'w-[18%]')}
                     {renderSortableHeader('Data Programada', 'usedDate', 'w-[18%]')}
                     {renderSortableHeader('QTD', 'qtd_mf', 'w-[8%]')}
@@ -1149,24 +1215,24 @@ const rowVisualInfo = useMemo(() => {
                     return (
                       <tr 
                         key={`${step.id}_${step.data_mf}_${index}`}
-                        className={`border-b border-brand-border transition-colors border-l-[3px] border-r-[3px] ${
+                        className={`border-b border-brand-border/70 border-l-[3px] border-r-[3px] transition-colors ${
                           isRowCopied
-                            ? 'bg-brand-accent/15 border-l-brand-accent border-r-brand-accent shadow-[inset_0_0_0_1px_rgba(0,238,118,0.35)]'
-                            : `${groupBgClass} ${groupBorderClass} border-r-transparent hover:bg-[#222329] hover:border-l-brand-accent`
+                            ? 'border-l-brand-accent border-r-brand-accent bg-brand-accent/12 shadow-[inset_0_0_0_1px_rgba(0,238,118,0.28)]'
+                            : `${groupBgClass} ${groupBorderClass} border-r-transparent hover:border-l-brand-accent hover:bg-brand-surface/75`
                         }`}
                       >
-                        <td className="p-[14px] px-6">
+                        <td>
                           <div className="flex items-center gap-3">
-                            <span className="font-mono text-[15px] font-bold text-brand-accent">{step.op}</span>
+                            <span className="font-mono text-sm font-bold text-brand-accent">{step.op}</span>
                             {isDuplicateOp && (
-                              <span className="rounded-full border border-white/40 bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white" title="OP aparece em mais de uma linha">
+                              <span className="rounded-full border border-brand-border bg-brand-surface px-2 py-0.5 text-[10px] font-bold text-brand-soft" title="OP aparece em mais de uma linha">
                                 {duplicateCount}x
                               </span>
                             )}
                             <button
                               type="button"
                               onClick={() => copyValue(step.op, 'OP', rowKey)}
-                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black focus:bg-brand-accent focus:text-black focus:outline-none focus:ring-2 focus:ring-brand-accent/70 focus:ring-offset-2 focus:ring-offset-brand-bg transition-colors flex items-center justify-center"
+                              className="ui-icon-button h-8 w-8"
                               title="Copiar OP"
                               aria-label={`Copiar OP ${step.op}`}
                             >
@@ -1174,13 +1240,13 @@ const rowVisualInfo = useMemo(() => {
                             </button>
                           </div>
                         </td>
-                        <td className="p-[14px] px-6">
+                        <td>
                           <div className="flex items-center gap-3">
-                            <span className="font-mono text-[15px] font-extrabold text-white bg-brand-accent/15 border border-brand-accent/30 rounded-md px-3 py-1">{formattedDate}</span>
+                            <span className="rounded-lg border border-brand-accent/25 bg-brand-accent/10 px-3 py-1.5 font-mono text-sm font-bold text-white">{formattedDate}</span>
                             <button
                               type="button"
                               onClick={() => copyValue(formattedDate, 'DATA', rowKey)}
-                              className="h-8 w-8 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black focus:bg-brand-accent focus:text-black focus:outline-none focus:ring-2 focus:ring-brand-accent/70 focus:ring-offset-2 focus:ring-offset-brand-bg transition-colors flex items-center justify-center"
+                              className="ui-icon-button h-8 w-8"
                               title="Copiar Data"
                               aria-label={`Copiar Data ${formattedDate}`}
                             >
@@ -1188,10 +1254,10 @@ const rowVisualInfo = useMemo(() => {
                             </button>
                           </div>
                         </td>
-                        <td className="p-[14px] px-6">
-                          <span className="font-mono text-[15px] font-bold text-white">{step.qtd_mf}</span>
+                        <td>
+                          <span className="font-mono text-sm font-bold text-white">{step.qtd_mf}</span>
                         </td>
-                        <td className="p-[14px] px-6 text-[13px] text-white font-medium">
+                        <td className="text-[13px] font-medium text-white">
                           <div className="flex flex-col gap-1">
                             <span>{step.stepName}</span>
                             {getSectorSankhyaCodes(step.stepName).length > 0 && (
@@ -1201,16 +1267,14 @@ const rowVisualInfo = useMemo(() => {
                             )}
                           </div>
                         </td>
-                        <td className="p-[14px] px-6">
-                          <span className="bg-[#2A2A2E] px-2 py-1 rounded text-[11px] font-semibold text-brand-muted">{step.linha || '-'}</span>
+                        <td>
+                          <span className="rounded-md border border-brand-border bg-brand-surface px-2 py-1 text-[11px] font-semibold text-brand-soft">{step.linha || '-'}</span>
                         </td>
-                        <td className="p-[14px] px-6">
+                        <td>
                           {validationInfo ? (
-                            <span title={validationInfo.observacao} className={`rounded-md border px-2 py-1 text-[11px] font-extrabold ${validationInfo.status === 'OK' ? 'border-green-500/30 bg-green-500/10 text-green-300' : validationInfo.status === 'Programado parcial' ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : validationInfo.status === 'Não programado' ? 'border-red-500/30 bg-red-500/10 text-red-300' : validationInfo.status === 'Data divergente' || validationInfo.status === 'Quantidade divergente' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-purple-500/30 bg-purple-500/10 text-purple-300'}`}>
-                              {validationInfo.status}
-                            </span>
+                            <StatusBadge status={validationInfo.status} title={validationInfo.observacao} />
                           ) : (
-                            <span className="text-brand-muted text-xs">Sem validação</span>
+                            <StatusBadge status="Sem validação" />
                           )}
                         </td>
                       </tr>
@@ -1218,6 +1282,8 @@ const rowVisualInfo = useMemo(() => {
                   })}
                 </tbody>
               </table>
+                </div>
+              </div>
             )}
           </div>
         </section>
@@ -1233,66 +1299,70 @@ const rowVisualInfo = useMemo(() => {
       
 
       {isValidationModalOpen && (
-        <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-[1100px] max-h-[90vh] overflow-hidden rounded-xl border border-brand-border bg-brand-card shadow-2xl flex flex-col">
-            <div className="px-5 py-4 border-b border-brand-border flex items-center justify-between">
-              <div>
-                <h2 className="text-white text-lg font-extrabold tracking-tight flex items-center gap-2">
-                  <FileCheck2 className="w-5 h-5 text-brand-accent" /> Validar programação
-                </h2>
-                <p className="text-brand-muted text-xs mt-1">Importe o relatório do Sankhya para comparar com a programação calculada pelo painel.</p>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="validation-modal-title" className="panel-shadow flex max-h-[92vh] w-full max-w-[1180px] flex-col overflow-hidden rounded-2xl border border-brand-border bg-brand-card">
+            <div className="flex items-start justify-between gap-4 border-b border-brand-border px-4 py-4 sm:px-6">
+              <div className="flex items-start gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent">
+                  <FileCheck2 className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 id="validation-modal-title" className="text-lg font-bold tracking-tight text-white">Validar programação</h2>
+                  <p className="mt-1 text-xs text-brand-muted">Importe o relatório do Sankhya para comparar com a programação calculada pelo painel.</p>
+                </div>
               </div>
-              <button type="button" onClick={() => setIsValidationModalOpen(false)} className="h-9 w-9 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black transition-colors flex items-center justify-center" title="Fechar">
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => setIsValidationModalOpen(false)} className="ui-icon-button" aria-label="Fechar validação">
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="p-5 border-b border-brand-border flex flex-col gap-4">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex flex-col gap-4 border-b border-brand-border bg-brand-panel/35 p-4 sm:p-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-md border border-brand-border bg-brand-bg px-3 py-2 text-xs font-bold text-white">OK: {validationCounts.OK || 0}</span>
-                  <span className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300">Programado parcial: {validationCounts['Programado parcial'] || 0}</span>
-                  <span className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300">Não programado: {validationCounts['Não programado'] || 0}</span>
-                  <span className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs font-bold text-yellow-300">Data divergente: {validationCounts['Data divergente'] || 0}</span>
-                  <span className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs font-bold text-yellow-300">Extra: {validationCounts.Extra || 0}</span>
-                  <span className="rounded-md border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs font-bold text-purple-300">Duplicado: {validationCounts.Duplicado || 0}</span>
+                  <StatusBadge status="OK" count={validationCounts.OK || 0} />
+                  <StatusBadge status="Programado parcial" count={validationCounts['Programado parcial'] || 0} />
+                  <StatusBadge status="Não programado" count={validationCounts['Não programado'] || 0} />
+                  <StatusBadge status="Data divergente" count={validationCounts['Data divergente'] || 0} />
+                  <StatusBadge status="Quantidade divergente" count={validationCounts['Quantidade divergente'] || 0} />
+                  <StatusBadge status="Extra" count={validationCounts.Extra || 0} />
+                  <StatusBadge status="Duplicado" count={validationCounts.Duplicado || 0} />
                 </div>
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 text-sm text-white font-semibold">
-                    <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="accent-[#00EE76]" />
+                <div className="flex flex-wrap gap-2">
+                  <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-white">
+                    <input type="checkbox" checked={showOnlyErrors} onChange={(e) => setShowOnlyErrors(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />
                     Exibir erros
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-white font-semibold">
-                    <input type="checkbox" checked={showOnlyPartial} onChange={(e) => setShowOnlyPartial(e.target.checked)} className="accent-[#00EE76]" />
+                  <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-white">
+                    <input type="checkbox" checked={showOnlyPartial} onChange={(e) => setShowOnlyPartial(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />
                     Programado parcial
                   </label>
                 </div>
               </div>
-              <div className="flex flex-col md:flex-row gap-3 md:items-center">
+              <div className="flex flex-col gap-3 rounded-xl border border-brand-border/80 bg-brand-card p-3 sm:flex-row sm:items-center">
                 <input type="file" accept=".xls,.xlsx" className="hidden" ref={validationFileInputRef} onChange={handleValidationFileUpload} />
-                <button type="button" onClick={() => validationFileInputRef.current?.click()} className="px-5 py-2 rounded-md text-[13px] font-bold bg-brand-accent text-black hover:opacity-90 transition-opacity whitespace-nowrap">
+                <button type="button" onClick={() => validationFileInputRef.current?.click()} className="ui-button ui-button-primary">
+                  <Upload className="h-4 w-4" />
                   Importar relatório do Sankhya
                 </button>
                 <span className="text-brand-muted text-xs">Regra usada: OP + Data Programada + Setor + QTD. Linhas importadas: {sankhyaRows.length || 0}</span>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
+            <div className="min-h-[180px] flex-1 overflow-auto">
               {validationResults.length === 0 ? (
-                <div className="py-12 text-center text-brand-muted text-sm">Importe o relatório do Sankhya para iniciar a validação.</div>
+                <EmptyState compact icon={FileCheck2} title="Nenhuma validação executada" description="Importe o relatório do Sankhya para iniciar a conferência." />
               ) : visibleValidationResults.length === 0 ? (
-                <div className="py-12 text-center text-brand-muted text-sm">Nenhum item incorreto encontrado com o filtro atual.</div>
+                <EmptyState compact icon={Check} title="Nenhum item no filtro atual" description="Não há divergências visíveis com os filtros de validação selecionados." />
               ) : (
-                <table className="w-full border-collapse">
-                  <thead className="sticky top-0 bg-brand-bg border-b border-brand-border z-10">
-                    <tr className="text-left text-[11px] uppercase tracking-widest text-brand-muted">
-                      <th className="p-3 px-4 font-bold w-[150px]">Status</th><th className="p-3 px-4 font-bold w-[120px]">OP</th><th className="p-3 px-4 font-bold w-[150px]">Data Painel</th><th className="p-3 px-4 font-bold w-[150px]">Data Sankhya</th><th className="p-3 px-4 font-bold">Setor</th><th className="p-3 px-4 font-bold w-[110px]">QTD Painel</th><th className="p-3 px-4 font-bold w-[120px]">QTD Sankhya</th><th className="p-3 px-4 font-bold">Observação</th>
+                <table className="min-w-[1050px] w-full border-collapse">
+                  <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                    <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
+                      <th className="p-3 px-4 font-bold w-[166px]">Status</th><th className="p-3 px-4 font-bold w-[100px]">OP</th><th className="p-3 px-4 font-bold w-[130px]">Data Painel</th><th className="p-3 px-4 font-bold w-[135px]">Data Sankhya</th><th className="p-3 px-4 font-bold">Setor</th><th className="p-3 px-4 font-bold w-[100px]">QTD Painel</th><th className="p-3 px-4 font-bold w-[115px]">QTD Sankhya</th><th className="p-3 px-4 font-bold">Observação</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleValidationResults.map((result, index) => {
-                      const statusClass = result.status === 'OK' ? 'border-green-500/30 bg-green-500/10 text-green-300' : result.status === 'Programado parcial' ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : result.status === 'Não programado' ? 'border-red-500/30 bg-red-500/10 text-red-300' : result.status === 'Data divergente' || result.status === 'Quantidade divergente' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : result.status === 'Extra' ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-purple-500/30 bg-purple-500/10 text-purple-300';
                       return (
-                        <tr key={result.status + '_' + result.op + '_' + result.setor + '_' + index} className="border-b border-brand-border hover:bg-[#1A1A1D]">
-                          <td className="p-3 px-4"><span className={'rounded-md border px-2 py-1 text-[11px] font-extrabold ' + statusClass}>{result.status}</span></td>
+                        <tr key={result.status + '_' + result.op + '_' + result.setor + '_' + index} className="border-b border-brand-border/70 transition-colors hover:bg-brand-surface/60">
+                          <td className="p-3 px-4"><StatusBadge status={result.status} /></td>
                           <td className="p-3 px-4 font-mono text-brand-accent font-bold">{result.op}</td>
                           <td className="p-3 px-4 font-mono text-white">{result.dataPainel ? formatToBRLDate(result.dataPainel) : '-'}</td>
                           <td className="p-3 px-4 font-mono text-white">{result.dataSistema ? formatToBRLDate(result.dataSistema) : '-'}</td>
@@ -1321,65 +1391,67 @@ const rowVisualInfo = useMemo(() => {
       )}
 
       {isTestModalOpen && (
-        <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-[620px] max-h-[90vh] overflow-hidden rounded-xl border border-brand-border bg-brand-card shadow-2xl flex flex-col">
-            <div className="px-5 py-4 border-b border-brand-border flex items-center justify-between">
-              <div>
-                <h2 className="text-white text-lg font-extrabold tracking-tight flex items-center gap-2">
-                  <FlaskConical className="w-5 h-5 text-brand-accent" /> Testar programação
-                </h2>
-                <p className="text-brand-muted text-xs mt-1">Simula as datas sem adicionar nada à lista principal.</p>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby="test-modal-title" className="panel-shadow flex max-h-[92vh] w-full max-w-[650px] flex-col overflow-hidden rounded-2xl border border-brand-border bg-brand-card">
+            <div className="flex items-start justify-between gap-4 border-b border-brand-border px-5 py-4">
+              <div className="flex items-start gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent">
+                  <FlaskConical className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 id="test-modal-title" className="text-lg font-bold tracking-tight text-white">Testar programação</h2>
+                  <p className="mt-1 text-xs text-brand-muted">Simula as datas sem adicionar nada à lista principal.</p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={handleCloseTestModal}
-                className="h-9 w-9 rounded-md border border-brand-border bg-[#1A1A1D] text-white hover:bg-brand-accent hover:text-black transition-colors flex items-center justify-center"
-                title="Fechar"
+                className="ui-icon-button"
+                aria-label="Fechar simulação"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="p-5 border-b border-brand-border">
-              <label className="block text-[11px] uppercase tracking-widest text-brand-muted font-bold mb-2">
+            <div className="border-b border-brand-border bg-brand-panel/35 p-5">
+              <label htmlFor="simulation-mf-date" className="mb-2 block text-[10px] font-bold uppercase tracking-[0.2em] text-brand-muted">
                 Data da Montagem Final
               </label>
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <input
+                  id="simulation-mf-date"
                   type="date"
                   value={testMfDate}
                   onChange={(e) => setTestMfDate(e.target.value)}
-                  className="flex-1 bg-brand-bg border border-brand-border rounded-md px-3 py-2 text-white text-sm outline-none focus:border-brand-accent"
+                  className="ui-field flex-1"
                 />
                 <button
                   type="button"
                   onClick={handleRunTestProgramming}
-                  className="px-5 py-2 rounded-md text-[13px] font-bold bg-brand-accent text-black hover:opacity-90 transition-opacity whitespace-nowrap"
+                  className="ui-button ui-button-primary px-5"
                 >
-                  OK / Simular
+                  Simular datas
                 </button>
               </div>
-              <p className="text-brand-muted text-xs mt-3">
+              <p className="mt-3 text-xs text-brand-muted">
                 O cálculo usa o calendário atual, incluindo dias bloqueados e dias extras liberados.
               </p>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="min-h-[150px] flex-1 overflow-auto">
               {testSteps.length === 0 ? (
-                <div className="py-12 text-center text-brand-muted text-sm">
-                  Informe a data da Montagem Final e clique em OK para visualizar a programação de teste.
-                </div>
+                <EmptyState compact icon={FlaskConical} title="Aguardando uma data" description="Informe a data da Montagem Final para visualizar a simulação." />
               ) : (
                 <table className="w-full border-collapse">
-                  <thead className="sticky top-0 bg-brand-bg border-b border-brand-border">
-                    <tr className="text-left text-[11px] uppercase tracking-widest text-brand-muted">
+                  <thead className="sticky top-0 border-b border-brand-border bg-brand-panel">
+                    <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
                       <th className="p-3 px-5 font-bold">Setor</th>
                       <th className="p-3 px-5 font-bold w-[190px]">Data Programada</th>
                     </tr>
                   </thead>
                   <tbody>
                     {testSteps.map((step) => (
-                      <tr key={step.id} className="border-b border-brand-border hover:bg-[#1A1A1D]">
+                      <tr key={step.id} className="border-b border-brand-border/70 transition-colors hover:bg-brand-surface/60">
                         <td className="p-3 px-5 text-white text-sm font-medium">
                           <div className="flex flex-col gap-1">
                             <span>{step.stepName}</span>
@@ -1391,7 +1463,7 @@ const rowVisualInfo = useMemo(() => {
                           </div>
                         </td>
                         <td className="p-3 px-5">
-                          <span className="font-mono text-[14px] font-extrabold text-white bg-brand-accent/15 border border-brand-accent/30 rounded-md px-3 py-1">
+                          <span className="rounded-lg border border-brand-accent/25 bg-brand-accent/10 px-3 py-1.5 font-mono text-sm font-bold text-white">
                             {formatToBRLDate(step.usedDate)}
                           </span>
                         </td>
@@ -1406,8 +1478,8 @@ const rowVisualInfo = useMemo(() => {
       )}
 
       {errorInfo && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#2A1010] border border-red-500/20 text-red-400 px-6 py-3 rounded-lg text-[13px] font-semibold shadow-2xl z-[100] flex items-center gap-2">
-          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20">!</span>
+        <div role="alert" className="panel-shadow fixed bottom-5 left-1/2 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border border-red-400/25 bg-[#241317] px-4 py-3 text-sm font-semibold text-red-200">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-400/15 text-red-300">!</span>
           {errorInfo}
         </div>
       )}
@@ -1415,11 +1487,33 @@ const rowVisualInfo = useMemo(() => {
   );
 }
 
-function StatCard({ label, value }: { label: string, value: string | number }) {
+function StatusBadge({ status, title, count }: { status: DisplayStatus; title?: string; count?: number }) {
   return (
-    <div className="bg-brand-bg py-4 px-6 flex flex-col justify-center">
-      <span className="text-[11px] uppercase text-brand-muted tracking-wide mb-1 font-semibold">{label}</span>
-      <span className="text-2xl font-bold font-mono text-white tracking-tight">{value}</span>
+    <span title={title} className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${STATUS_BADGE_CLASSES[status]}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {status}
+      {count !== undefined && <span className="rounded-md bg-black/15 px-1.5 py-0.5 font-mono font-bold">{count}</span>}
+    </span>
+  );
+}
+
+function EmptyState({ icon: Icon, title, description, compact = false }: { icon: React.ElementType<{ className?: string }>; title: string; description: string; compact?: boolean }) {
+  return (
+    <div className={`flex h-full flex-col items-center justify-center px-6 text-center ${compact ? 'min-h-[180px] py-8' : 'py-16'}`}>
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-brand-border bg-brand-card text-brand-muted">
+        <Icon className="h-6 w-6" />
+      </div>
+      <h3 className="text-base font-semibold text-white">{title}</h3>
+      <p className="mt-2 max-w-md text-sm leading-relaxed text-brand-muted">{description}</p>
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {
+  return (
+    <div className="flex min-h-[82px] flex-col justify-center bg-brand-panel/75 px-4 py-3 sm:px-6">
+      <span className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-muted">{label}</span>
+      <span className={`font-mono text-2xl font-bold tracking-tight ${accent ? 'text-brand-accent' : 'text-white'}`}>{value}</span>
     </div>
   );
 }

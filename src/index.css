@@ -1,33 +1,169 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: Arial, "Helvetica Neue", sans-serif;
-  --font-mono: Arial, "Helvetica Neue", sans-serif;
+  --font-sans: "Segoe UI", Arial, "Helvetica Neue", sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", Arial, sans-serif;
 
-  --color-brand-bg: #0A0A0B;
-  --color-brand-card: #141416;
-  --color-brand-accent: #00EE76;
-  --color-brand-border: #2A2A2E;
-  --color-brand-muted: #8E9299;
+  --color-brand-bg: #080b0d;
+  --color-brand-panel: #0e1216;
+  --color-brand-card: #13181d;
+  --color-brand-surface: #1a2026;
+  --color-brand-accent: #00ee76;
+  --color-brand-border: #27303a;
+  --color-brand-muted: #92a0af;
+  --color-brand-soft: #d1d8df;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
+  margin: 0;
   background-color: var(--color-brand-bg);
-  color: #FFFFFF;
+  color: #fff;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
+* {
+  box-sizing: border-box;
+  scrollbar-color: #303945 #0e1216;
+  scrollbar-width: thin;
+}
 
-/* Ajuste responsivo da tabela principal conforme zoom e largura da página */
+*::selection {
+  background: rgba(0, 238, 118, 0.25);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app-shell {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(0, 238, 118, 0.08), transparent 27rem),
+    linear-gradient(180deg, #0b0f13 0%, var(--color-brand-bg) 22%);
+}
+
+.panel-shadow {
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.26);
+}
+
+.ui-button {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-brand-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.ui-button-secondary {
+  background: rgba(19, 24, 29, 0.86);
+}
+
+.ui-button-secondary:hover {
+  border-color: #3b4653;
+  background: var(--color-brand-surface);
+}
+
+.ui-button-primary {
+  border-color: rgba(0, 238, 118, 0.55);
+  background: var(--color-brand-accent);
+  color: #041109;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(0, 238, 118, 0.16);
+}
+
+.ui-button-primary:hover {
+  background: #19f385;
+  box-shadow: 0 14px 30px rgba(0, 238, 118, 0.24);
+}
+
+.ui-icon-button {
+  height: 40px;
+  width: 40px;
+  flex-shrink: 0;
+  border-radius: 0.7rem;
+  border: 1px solid var(--color-brand-border);
+  background: var(--color-brand-surface);
+  color: var(--color-brand-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.ui-icon-button:hover {
+  border-color: rgba(0, 238, 118, 0.4);
+  color: var(--color-brand-accent);
+}
+
+.ui-field {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--color-brand-border);
+  border-radius: 0.7rem;
+  background: var(--color-brand-surface);
+  color: #fff;
+  padding: 0.62rem 0.75rem;
+  font-size: 0.8125rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.ui-field:hover {
+  border-color: #3b4653;
+}
+
+.ui-field::placeholder {
+  color: #727f8e;
+}
+
+.ui-button:focus-visible,
+.ui-icon-button:focus-visible,
+.ui-field:focus-visible,
+.tab-button:focus-visible,
+.day-button:focus-visible,
+.link-button:focus-visible {
+  outline: 2px solid var(--color-brand-accent);
+  outline-offset: 2px;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  opacity: 0.8;
+}
+
 .programacao-table {
   width: 100%;
-  min-width: 0;
+  min-width: 880px;
   table-layout: fixed;
-  font-size: clamp(11px, 0.72vw, 13px);
+  font-size: clamp(12px, 0.72vw, 13px);
 }
 
 .programacao-table th,
 .programacao-table td {
-  padding: clamp(8px, 0.75vw, 14px) clamp(10px, 1.15vw, 24px);
+  padding: clamp(10px, 0.8vw, 14px) clamp(12px, 1vw, 20px);
   vertical-align: middle;
 }
 
@@ -58,13 +194,19 @@ body {
   white-space: normal;
 }
 
+@media (min-width: 1280px) {
+  .programacao-table {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 1100px) {
   .programacao-table {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .programacao-table th,
   .programacao-table td {
-    padding: 8px 8px;
+    padding: 10px 12px;
   }
 }

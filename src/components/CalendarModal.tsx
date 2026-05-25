@@ -93,41 +93,45 @@ export function CalendarModal({ isOpen, onClose, config, onSave }: CalendarModal
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-bg/80 backdrop-blur-sm">
-      <div className="bg-brand-card border border-brand-border rounded-xl w-full max-w-md shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-brand-border">
-          <div className="flex items-center gap-2 text-white">
-            <h2 className="font-bold text-sm uppercase tracking-wider text-brand-muted">Dias Válidos</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-bg/85 p-4 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-labelledby="calendar-modal-title" className="panel-shadow flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-brand-border bg-brand-card">
+        <div className="flex items-start justify-between border-b border-brand-border px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent">
+              <CalendarIcon className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 id="calendar-modal-title" className="text-base font-bold text-white">Dias válidos</h2>
+              <p className="mt-1 text-xs text-brand-muted">Defina os dias disponíveis para produção.</p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded-md text-brand-muted hover:text-white transition">
-            <X className="w-5 h-5" />
+          <button type="button" onClick={onClose} className="ui-icon-button" aria-label="Fechar calendário">
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <button onClick={prevMonth} className="p-2 rounded-lg bg-[#1A1A1D] text-brand-muted hover:text-white transition">
-              <ChevronLeft className="w-5 h-5" />
+        <div className="p-5">
+          <div className="mb-5 flex items-center justify-between">
+            <button type="button" onClick={prevMonth} className="ui-icon-button" aria-label="Mês anterior">
+              <ChevronLeft className="h-5 w-5" />
             </button>
-            <h3 className="text-white font-semibold capitalize text-[13px] uppercase tracking-widest">
+            <h3 className="text-sm font-bold capitalize tracking-[0.15em] text-white">
               {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
             </h3>
-            <button onClick={nextMonth} className="p-2 rounded-lg bg-[#1A1A1D] text-brand-muted hover:text-white transition">
-              <ChevronRight className="w-5 h-5" />
+            <button type="button" onClick={nextMonth} className="ui-icon-button" aria-label="Próximo mês">
+              <ChevronRight className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="mb-2 grid grid-cols-7 gap-1.5">
             {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d) => (
-              <div key={d} className="text-center text-[10px] font-bold text-brand-muted uppercase tracking-wider py-1">
+              <div key={d} className="py-1 text-center text-[10px] font-bold uppercase tracking-[0.15em] text-brand-muted">
                 {d}
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1.5">
             {Array.from({ length: monthStart.getDay() }).map((_, i) => (
               <div key={`empty-${i}`} className="aspect-square" />
             ))}
@@ -138,14 +142,17 @@ export function CalendarModal({ isOpen, onClose, config, onSave }: CalendarModal
               
               return (
                 <button
+                  type="button"
                   key={day.toString()}
                   onClick={() => toggleDay(day)}
+                  aria-pressed={isValidDay}
+                  aria-label={`${format(day, 'dd/MM/yyyy')} - ${isValidDay ? 'dia válido' : 'dia bloqueado'}`}
                   className={cn(
-                    "aspect-square flex items-center justify-center rounded text-[11px] font-mono transition-all duration-200 border",
+                    "day-button aspect-square flex items-center justify-center rounded-lg border text-xs font-mono font-semibold transition-all duration-200",
                     isValidDay 
-                      ? "bg-brand-accent/20 border-brand-accent text-brand-accent hover:opacity-80"
-                      : "bg-transparent border-brand-border text-brand-muted opacity-30 hover:opacity-80",
-                    today && isValidDay && "ring-1 ring-brand-accent ring-offset-1 ring-offset-brand-bg"
+                      ? "border-brand-accent/45 bg-brand-accent/15 text-brand-accent hover:bg-brand-accent/25"
+                      : "border-brand-border bg-brand-panel/40 text-brand-muted/50 hover:border-brand-border hover:text-brand-muted",
+                    today && "ring-1 ring-brand-accent ring-offset-2 ring-offset-brand-card"
                   )}
                 >
                   {format(day, 'dd')}
@@ -154,38 +161,44 @@ export function CalendarModal({ isOpen, onClose, config, onSave }: CalendarModal
             })}
           </div>
 
-          <div className="mt-6 flex flex-col gap-2">
-            <div className="flex gap-2">
-              <button
-                onClick={markAllWorkingDaysInMonth}
-                className="flex-1 text-[11px] py-2 px-3 bg-[#1A1A1D] border border-brand-border hover:bg-brand-border text-white rounded font-semibold uppercase tracking-wider transition"
-              >
-                Marcar úteis
-              </button>
-              <button
-                onClick={clearSelectionInMonth}
-                className="flex-1 text-[11px] py-2 px-3 bg-[#1A1A1D] border border-brand-border hover:bg-brand-border text-white rounded font-semibold uppercase tracking-wider transition"
-              >
-                Limpar
-              </button>
-            </div>
+          <div className="mt-5 flex items-center gap-5 rounded-xl border border-brand-border/70 bg-brand-panel/55 px-3 py-2.5 text-[11px] text-brand-muted">
+            <span className="flex items-center gap-2"><span className="h-3 w-3 rounded border border-brand-accent/50 bg-brand-accent/20" /> Disponível</span>
+            <span className="flex items-center gap-2"><span className="h-3 w-3 rounded border border-brand-border bg-brand-panel" /> Bloqueado</span>
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              onClick={markAllWorkingDaysInMonth}
+              className="ui-button ui-button-secondary flex-1 text-[11px] uppercase tracking-[0.13em]"
+            >
+              Marcar úteis
+            </button>
+            <button
+              type="button"
+              onClick={clearSelectionInMonth}
+              className="ui-button ui-button-secondary flex-1 text-[11px] uppercase tracking-[0.13em]"
+            >
+              Limpar
+            </button>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-brand-border flex justify-end gap-3 rounded-b-xl bg-[#1A1A1D]/50">
+        <div className="flex justify-end gap-2 border-t border-brand-border bg-brand-panel/55 px-5 py-4">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded text-[11px] font-bold text-brand-muted hover:text-white transition tracking-widest uppercase"
+            className="ui-button border-transparent bg-transparent text-brand-muted hover:text-white"
           >
             Cancelar
           </button>
           <button
+            type="button"
             onClick={() => {
               onSave(localConfig);
               onClose();
             }}
-            className="px-4 py-2 rounded text-[11px] font-bold bg-brand-accent text-black hover:opacity-90 transition tracking-widest uppercase"
+            className="ui-button ui-button-primary px-5"
           >
             Confirmar
           </button>
