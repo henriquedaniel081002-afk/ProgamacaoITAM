@@ -210,3 +210,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     padding: 10px 12px;
   }
 }
+
+/* Campo Buscar OP: sem ícone interno para impedir sobreposição com os caracteres digitados. */
+.filter-op-field {
+  padding-left: 0.85rem !important;
+  text-indent: 0 !important;
+  background-image: none !important;
+}

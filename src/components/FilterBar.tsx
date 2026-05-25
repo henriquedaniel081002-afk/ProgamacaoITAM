@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, Search } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 
 interface Filters {
   dateStart: string;
@@ -76,10 +76,16 @@ export function FilterBar({ filters, setFilters, sectors }: FilterBarProps) {
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="filter-op" className="text-[11px] font-semibold text-brand-soft">Buscar OP</label>
-        <div className="relative">
-          <input id="filter-op" type="text" name="op" value={filters.op} onChange={handleChange} placeholder="Ex: 12345" className="ui-field pl-10" />
-          <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-brand-muted" />
-        </div>
+        <input
+          id="filter-op"
+          type="text"
+          name="op"
+          value={filters.op}
+          onChange={handleChange}
+          placeholder="Digite a OP"
+          className="ui-field filter-op-field"
+          autoComplete="off"
+        />
       </div>
     </div>
   );
