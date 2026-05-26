@@ -15,6 +15,9 @@ import { CalendarModal } from './components/CalendarModal';
 import { FilterBar } from './components/FilterBar';
 
 type SankhyaProgramRow = { op: string; data: string; setor: string; qtd: number; linha: string; };
+type SeriesRow = { op: string; data: string; setor: string; atividade: string; qtd: number; serieInicial: number; serieFinal: number; rawSetor: string; };
+type SeriesValidationStatus = 'OK' | 'Erro';
+type SeriesValidationResult = { status: SeriesValidationStatus; op: string; grupo: string; lote: string; setores: string; qtd?: number; serieInicial?: number; serieFinal?: number; datas: string; observacao: string; };
 type ValidationStatus = 'OK' | 'Programado parcial' | 'Não programado' | 'Data divergente' | 'Quantidade divergente' | 'Duplicado' | 'Extra';
 type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: string; dataSistema?: string; setor: string; qtdPainel?: number; qtdSistema?: number; linhaPainel?: string; linhaSistema?: string; observacao: string; };
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
@@ -219,7 +222,7 @@ export default function App() {
   const [testMfDate, setTestMfDate] = useState('');
   const [testSteps, setTestSteps] = useState<OPStep[]>([]);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'programacao' | 'dashboard'>('programacao');
+  const [activeTab, setActiveTab] = useState<'programacao' | 'dashboard' | 'validarSerie'>('programacao');
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   // Somente a última linha copiada fica destacada.
   // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
@@ -231,9 +234,13 @@ export default function App() {
   const [validationResults, setValidationResults] = useState<ValidationResult[]>(() => readStorage(STORAGE_KEYS.validationResults, []));
   const [showOnlyErrors, setShowOnlyErrors] = useState<boolean>(() => readStorage(STORAGE_KEYS.showOnlyErrors, false));
   const [showOnlyPartial, setShowOnlyPartial] = useState<boolean>(() => readStorage(STORAGE_KEYS.showOnlyPartial, false));
+  const [seriesRows, setSeriesRows] = useState<SeriesRow[]>([]);
+  const [seriesValidationResults, setSeriesValidationResults] = useState<SeriesValidationResult[]>([]);
+  const [showOnlySeriesErrors, setShowOnlySeriesErrors] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const validationFileInputRef = useRef<HTMLInputElement>(null);
+  const seriesFileInputRef = useRef<HTMLInputElement>(null);
 
   const [filters, setFilters] = useState({
     dateStart: '',
@@ -513,7 +520,61 @@ export default function App() {
       });
     };
 
+    const applyPartialStatusByLinkedSectorGroup = (items: ValidationResult[]) => {
+      const grouped = new Map<string, ValidationResult[]>();
+
+      items.forEach(item => {
+        if (!item.dataPainel) return;
+        const linkedGroup = getLinkedSectorGroup(normalizeSectorName(item.setor));
+        if (!linkedGroup) return;
+
+        // Complementa a regra antiga sem substituí-la:
+        // antes a parcialidade era analisada por OP + setor; agora, quando o setor
+        // pertence a um grupo produtivo, também avaliamos OP + grupo + quantidade.
+        const key = [
+          normalizeOp(item.op),
+          normalizeText(linkedGroup.label),
+          normalizeQty(item.qtdPainel || 0),
+        ].join('|');
+
+        const list = grouped.get(key) || [];
+        list.push(item);
+        grouped.set(key, list);
+      });
+
+      grouped.forEach(groupItems => {
+        const okItems = groupItems.filter(item => item.status === 'OK');
+        if (okItems.length === 0) return;
+
+        const missingItems = groupItems.filter(item => item.status === 'Não programado');
+        if (missingItems.length === 0) return;
+
+        const linkedGroup = getLinkedSectorGroup(normalizeSectorName(groupItems[0].setor));
+        if (!linkedGroup) return;
+
+        const sectorsWithOk = Array.from(new Set(okItems.map(item => normalizeSectorName(item.setor))));
+        const sectorsMissing = Array.from(new Set(missingItems.map(item => normalizeSectorName(item.setor))));
+        const qtdOk = okItems.reduce((sum, item) => sum + normalizeQty(item.qtdPainel || 0), 0);
+        const qtdFaltante = missingItems.reduce((sum, item) => sum + normalizeQty(item.qtdPainel || 0), 0);
+        const faltas = missingItems
+          .slice()
+          .sort((a, b) => {
+            const sectorDiff = getSectorOrderInsideGroup(a.setor) - getSectorOrderInsideGroup(b.setor);
+            if (sectorDiff !== 0) return sectorDiff;
+            return (a.dataPainel || '').localeCompare(b.dataPainel || '');
+          })
+          .map(item => `${normalizeSectorName(item.setor)} em ${formatToBRLDate(item.dataPainel || '')} - ${normalizeQty(item.qtdPainel || 0)} peça(s)`)
+          .join(' | ');
+
+        okItems.forEach(item => {
+          item.status = PARTIAL_STATUS;
+          item.observacao = `Este setor foi encontrado corretamente pela regra individual, mas o grupo produtivo ainda está incompleto. Grupo: ${linkedGroup.label}. Setores OK: ${sectorsWithOk.join(', ')}. Setores faltantes: ${sectorsMissing.join(', ')}. Programado no grupo: ${qtdOk} peça(s). Faltante no grupo: ${qtdFaltante} peça(s). Falta programar: ${faltas}.`;
+        });
+      });
+    };
+
     applyPartialStatusByOpSector(results);
+    applyPartialStatusByLinkedSectorGroup(results);
 
     results.sort((a, b) => {
       const statusOrder: Record<ValidationStatus, number> = { 'Não programado': 0, 'Programado parcial': 1, 'Data divergente': 2, 'Quantidade divergente': 3, Duplicado: 4, Extra: 5, OK: 6 };
@@ -596,6 +657,235 @@ export default function App() {
     reader.onerror = () => setErrorInfo('Erro ao carregar o relatório do Sankhya. Tente novamente.');
     reader.readAsArrayBuffer(file);
     if (validationFileInputRef.current) validationFileInputRef.current.value = '';
+  };
+
+
+
+  const SERIES_GROUPS = [
+    { label: 'Tanque', sectors: ['Estamparia', 'Solda Tanque', 'Pintura Tanque'] },
+    { label: 'Ferragem', sectors: ['Ferragem', 'Pintura Ferragem'] },
+    { label: 'Núcleo', sectors: ['Corte Núcleo', 'Montagem Núcleo'] },
+  ];
+
+  const getSeriesGroup = (sector: string) => SERIES_GROUPS.find(group => group.sectors.includes(normalizeSectorName(sector)));
+  const getSeriesKey = (row: SeriesRow) => `${normalizeOp(row.op)}|${row.serieInicial}|${row.serieFinal}`;
+  const formatSeriesDateList = (rows: SeriesRow[]) => rows
+    .slice()
+    .sort((a, b) => a.data.localeCompare(b.data) || a.setor.localeCompare(b.setor))
+    .map(row => `${formatToBRLDate(row.data)} - ${row.setor}`)
+    .join(' | ');
+
+  const buildSeriesValidationResults = (rows: SeriesRow[]) => {
+    const results: SeriesValidationResult[] = [];
+    const relevantRows = rows.filter(row => getSeriesGroup(row.setor));
+
+    relevantRows.forEach(row => {
+      const tamanhoFaixa = row.serieFinal - row.serieInicial + 1;
+      if (!Number.isFinite(row.serieInicial) || !Number.isFinite(row.serieFinal) || row.serieInicial <= 0 || row.serieFinal <= 0) {
+        results.push({
+          status: 'Erro', op: row.op, grupo: getSeriesGroup(row.setor)?.label || '-', lote: '-', setores: row.setor,
+          qtd: row.qtd, serieInicial: row.serieInicial, serieFinal: row.serieFinal, datas: formatToBRLDate(row.data),
+          observacao: 'Série inicial ou série final inválida.'
+        });
+      } else if (row.serieInicial > row.serieFinal) {
+        results.push({
+          status: 'Erro', op: row.op, grupo: getSeriesGroup(row.setor)?.label || '-', lote: `${row.serieInicial}-${row.serieFinal}`, setores: row.setor,
+          qtd: row.qtd, serieInicial: row.serieInicial, serieFinal: row.serieFinal, datas: formatToBRLDate(row.data),
+          observacao: 'Série inicial maior que a série final.'
+        });
+      } else if (normalizeQty(tamanhoFaixa) !== normalizeQty(row.qtd)) {
+        results.push({
+          status: 'Erro', op: row.op, grupo: getSeriesGroup(row.setor)?.label || '-', lote: `${row.serieInicial}-${row.serieFinal}`, setores: row.setor,
+          qtd: row.qtd, serieInicial: row.serieInicial, serieFinal: row.serieFinal, datas: formatToBRLDate(row.data),
+          observacao: `Quantidade incompatível com a faixa de série. A faixa possui ${tamanhoFaixa} peça(s), mas a linha está com ${row.qtd}.`
+        });
+      }
+    });
+
+    SERIES_GROUPS.forEach(group => {
+      const rowsByOp = new Map<string, SeriesRow[]>();
+      relevantRows.filter(row => group.sectors.includes(row.setor)).forEach(row => {
+        const op = normalizeOp(row.op);
+        const list = rowsByOp.get(op) || [];
+        list.push(row);
+        rowsByOp.set(op, list);
+      });
+
+      rowsByOp.forEach((opRows, op) => {
+        const bySeries = new Map<string, SeriesRow[]>();
+        opRows.forEach(row => {
+          const key = getSeriesKey(row);
+          const list = bySeries.get(key) || [];
+          list.push(row);
+          bySeries.set(key, list);
+        });
+
+        bySeries.forEach((serieRows, key) => {
+          const first = serieRows[0];
+          const sectorsFound = new Set(serieRows.map(row => row.setor));
+          const missingSectors = group.sectors.filter(sector => !sectorsFound.has(sector));
+          const duplicateSectors = group.sectors.filter(sector => serieRows.filter(row => row.setor === sector).length > 1);
+          const qtds = Array.from(new Set(serieRows.map(row => normalizeQty(row.qtd))));
+          const datesBySector = new Map<string, string>();
+          serieRows.forEach(row => {
+            if (!datesBySector.has(row.setor) || row.data < datesBySector.get(row.setor)!) datesBySector.set(row.setor, row.data);
+          });
+          const orderedDates = group.sectors.map(sector => datesBySector.get(sector)).filter(Boolean) as string[];
+          const hasDateOrderError = orderedDates.some((date, index) => index > 0 && date < orderedDates[index - 1]);
+          const setores = Array.from(sectorsFound).join(', ');
+          const lote = `${first.serieInicial}-${first.serieFinal}`;
+
+          if (missingSectors.length > 0) {
+            results.push({
+              status: 'Erro', op, grupo: group.label, lote, setores, qtd: first.qtd,
+              serieInicial: first.serieInicial, serieFinal: first.serieFinal, datas: formatSeriesDateList(serieRows),
+              observacao: `Esta faixa de série não apareceu em todos os setores do grupo. Setor(es) ausente(s): ${missingSectors.join(', ')}.`
+            });
+          }
+
+          if (duplicateSectors.length > 0) {
+            results.push({
+              status: 'Erro', op, grupo: group.label, lote, setores, qtd: first.qtd,
+              serieInicial: first.serieInicial, serieFinal: first.serieFinal, datas: formatSeriesDateList(serieRows),
+              observacao: `A mesma faixa de série apareceu mais de uma vez no(s) setor(es): ${duplicateSectors.join(', ')}.`
+            });
+          }
+
+          if (qtds.length > 1) {
+            results.push({
+              status: 'Erro', op, grupo: group.label, lote, setores, qtd: first.qtd,
+              serieInicial: first.serieInicial, serieFinal: first.serieFinal, datas: formatSeriesDateList(serieRows),
+              observacao: `A mesma faixa de série foi usada com quantidades diferentes: ${qtds.join(', ')}.`
+            });
+          }
+
+          if (hasDateOrderError) {
+            results.push({
+              status: 'Erro', op, grupo: group.label, lote, setores, qtd: first.qtd,
+              serieInicial: first.serieInicial, serieFinal: first.serieFinal, datas: formatSeriesDateList(serieRows),
+              observacao: `A ordem das datas não segue o fluxo esperado: ${group.sectors.join(' → ')}.`
+            });
+          }
+
+          if (missingSectors.length === 0 && duplicateSectors.length === 0 && qtds.length === 1 && !hasDateOrderError) {
+            const hasRangeError = results.some(result => result.op === op && result.grupo === group.label && result.lote === lote && result.observacao.includes('Quantidade incompatível'));
+            if (!hasRangeError) {
+              results.push({
+                status: 'OK', op, grupo: group.label, lote, setores: group.sectors.join(', '), qtd: first.qtd,
+                serieInicial: first.serieInicial, serieFinal: first.serieFinal, datas: formatSeriesDateList(serieRows),
+                observacao: 'Série consistente entre os setores do grupo.'
+              });
+            }
+          }
+        });
+
+        const sortedRanges = Array.from(bySeries.values())
+          .map(list => list[0])
+          .sort((a, b) => a.serieInicial - b.serieInicial || a.serieFinal - b.serieFinal);
+        for (let i = 1; i < sortedRanges.length; i += 1) {
+          const previous = sortedRanges[i - 1];
+          const current = sortedRanges[i];
+          if (current.serieInicial <= previous.serieFinal && (current.serieInicial !== previous.serieInicial || current.serieFinal !== previous.serieFinal)) {
+            results.push({
+              status: 'Erro', op, grupo: group.label, lote: `${current.serieInicial}-${current.serieFinal}`, setores: '-', qtd: current.qtd,
+              serieInicial: current.serieInicial, serieFinal: current.serieFinal, datas: '-',
+              observacao: `Sobreposição de séries com a faixa ${previous.serieInicial}-${previous.serieFinal}.`
+            });
+          }
+        }
+      });
+    });
+
+    results.sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'Erro' ? -1 : 1;
+      return a.op.localeCompare(b.op, undefined, { numeric: true }) || a.grupo.localeCompare(b.grupo) || a.lote.localeCompare(b.lote, undefined, { numeric: true });
+    });
+    setSeriesValidationResults(results);
+  };
+
+  const handleSeriesFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorInfo(null);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const buffer = evt.target?.result;
+        const wb = XLSX.read(buffer, { type: 'array', cellDates: true, dateNF: 'dd/MM/yyyy' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const opAliases = ['OP-Pai', 'OP Pai', 'OPPAI', 'OP', 'Nro OP', 'NRO OP', 'Nro. OP'];
+        const dateAliases = ['Dt.Programada', 'Dt Programada', 'Data Programada', 'DATA PROGRAMADA', 'DT PROGRAMADA', 'Dia', 'Data'];
+        const sectorAliases = ['Descr.Atividade', 'Descr Atividade', 'Descricao Atividade', 'Descrição Atividade', 'Descrição (Atividade)', 'Descr. Atividade', 'Desc Atividade', 'Setor'];
+        const codAliases = ['Atividade', 'Cod.Atividade', 'Cod Atividade', 'COD ATIVIDADE', 'Codigo Atividade', 'Cód. Atividade', 'Cód Atividade', 'Cod Sankhya', 'COD SANKHYA', 'Código Sankhya'];
+        const qtdAliases = ['Qtd.Programada', 'Qtd Programada', 'Quantidade Programada', 'QTD PROGRAMADA', 'Qtd', 'Quantidade'];
+        const serieInicialAliases = ['Série Inicial', 'Serie Inicial', 'SERIE INICIAL', 'Série Inicial ', 'Serie Inicial '];
+        const serieFinalAliases = ['Série Final', 'Serie Final', 'SERIE FINAL', 'Série Final ', 'Serie Final '];
+        const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '', raw: false, dateNF: 'dd/MM/yyyy' });
+        const headerRowIndex = findHeaderRowIndex(rows, [opAliases, dateAliases, [...sectorAliases, ...codAliases], qtdAliases, serieInicialAliases, serieFinalAliases]);
+        if (headerRowIndex < 0) {
+          setErrorInfo('Não encontrei as colunas necessárias. O arquivo precisa ter OP-Pai, Dt.Programada, Atividade/Descr.Atividade, Qtd.Programada, Série Inicial e Série Final.');
+          setSeriesRows([]);
+          setSeriesValidationResults([]);
+          return;
+        }
+        const headers = rows[headerRowIndex];
+        const parsedRows: SeriesRow[] = rows.slice(headerRowIndex + 1).map(row => {
+          const opValue = getCellFromRowArray(headers, row, opAliases);
+          const dateValue = getCellFromRowArray(headers, row, dateAliases);
+          const sectorValue = getCellFromRowArray(headers, row, sectorAliases);
+          const codValue = getCellFromRowArray(headers, row, codAliases);
+          const setor = normalizeSectorName(mapCodToSetor(codValue, sectorValue));
+          return {
+            op: normalizeOp(opValue),
+            data: parseExcelDate(dateValue) || '',
+            setor,
+            atividade: normalizeSankhyaCod(codValue),
+            qtd: parseNumber(getCellFromRowArray(headers, row, qtdAliases)),
+            serieInicial: parseNumber(getCellFromRowArray(headers, row, serieInicialAliases)),
+            serieFinal: parseNumber(getCellFromRowArray(headers, row, serieFinalAliases)),
+            rawSetor: String(sectorValue ?? '').trim()
+          };
+        }).filter(row => row.op && row.data && row.setor && row.qtd > 0);
+
+        if (parsedRows.length === 0) {
+          setErrorInfo('Encontrei o cabeçalho, mas nenhuma linha válida para validar séries.');
+          setSeriesRows([]);
+          setSeriesValidationResults([]);
+          return;
+        }
+
+        const programacaoOps = new Set(
+          (calculatedSteps.length > 0 ? calculatedSteps.map(step => step.op) : rawOPs.map(op => op.op))
+            .map(op => normalizeOp(op))
+            .filter(Boolean)
+        );
+
+        if (programacaoOps.size === 0) {
+          setErrorInfo('Gere ou importe a programação antes de validar séries. A aba Validar Série só analisa OPs existentes na aba Programação.');
+          setSeriesRows([]);
+          setSeriesValidationResults([]);
+          return;
+        }
+
+        const filteredRows = parsedRows.filter(row => programacaoOps.has(normalizeOp(row.op)));
+
+        if (filteredRows.length === 0) {
+          setErrorInfo('Nenhuma OP do arquivo de séries corresponde às OPs existentes na aba Programação.');
+          setSeriesRows([]);
+          setSeriesValidationResults([]);
+          return;
+        }
+
+        setSeriesRows(filteredRows);
+        buildSeriesValidationResults(filteredRows);
+      } catch (error) {
+        console.error(error);
+        setErrorInfo('Não foi possível ler o arquivo de séries. Envie um .xls ou .xlsx válido.');
+      }
+    };
+    reader.onerror = () => setErrorInfo('Erro ao carregar o arquivo de séries. Tente novamente.');
+    reader.readAsArrayBuffer(file);
+    if (seriesFileInputRef.current) seriesFileInputRef.current.value = '';
   };
 
   const openValidationModal = () => { setIsValidationModalOpen(true); setErrorInfo(null); };
@@ -818,6 +1108,19 @@ export default function App() {
     }, {} as Record<ValidationStatus, number>);
   }, [validationResults]);
 
+
+  const visibleSeriesValidationResults = useMemo(() => {
+    if (!showOnlySeriesErrors) return seriesValidationResults;
+    return seriesValidationResults.filter(result => result.status === 'Erro');
+  }, [seriesValidationResults, showOnlySeriesErrors]);
+
+  const seriesValidationCounts = useMemo(() => {
+    return seriesValidationResults.reduce((acc, result) => {
+      acc[result.status] = (acc[result.status] || 0) + 1;
+      return acc;
+    }, {} as Record<SeriesValidationStatus, number>);
+  }, [seriesValidationResults]);
+
   const validationByPanelKey = useMemo(() => {
     const map = new Map<string, ValidationResult>();
     validationResults.forEach(result => {
@@ -1036,6 +1339,9 @@ const rowVisualInfo = useMemo(() => {
               <button type="button" role="tab" aria-selected={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'dashboard' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
                 <BarChart3 className="h-4 w-4" /> Dashboard
               </button>
+              <button type="button" role="tab" aria-selected={activeTab === 'validarSerie'} onClick={() => setActiveTab('validarSerie')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'validarSerie' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+                <FileCheck2 className="h-4 w-4" /> Validar Série
+              </button>
             </div>
 
             <button
@@ -1083,7 +1389,81 @@ const rowVisualInfo = useMemo(() => {
           </div>
 
           <div className="min-h-0 flex-1 overflow-hidden">
-            {activeTab === 'dashboard' ? (
+
+            {activeTab === 'validarSerie' ? (
+              <div className="flex h-full flex-col overflow-hidden">
+                <div className="flex shrink-0 flex-col gap-4 border-b border-brand-border bg-brand-panel/35 p-4 sm:p-5">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Validação de séries</p>
+                      <p className="mt-1 max-w-3xl text-xs leading-relaxed text-brand-soft">
+                        Importe o relatório com OP-Pai, Dt.Programada, Atividade/Descr.Atividade, Qtd.Programada, Série Inicial e Série Final. A validação confere Tanque, Ferragem e Núcleo sem alterar a programação existente.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-lg border border-brand-accent/30 bg-brand-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-brand-accent"><span className="h-1.5 w-1.5 rounded-full bg-current" />OK <span className="rounded-md bg-black/15 px-1.5 py-0.5 font-mono font-bold">{seriesValidationCounts.OK || 0}</span></span>
+                      <span className="inline-flex items-center gap-2 rounded-lg border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-semibold text-red-300"><span className="h-1.5 w-1.5 rounded-full bg-current" />Erro <span className="rounded-md bg-black/15 px-1.5 py-0.5 font-mono font-bold">{seriesValidationCounts.Erro || 0}</span></span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-3 rounded-xl border border-brand-border/80 bg-brand-card p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <input type="file" accept=".xls,.xlsx" className="hidden" ref={seriesFileInputRef} onChange={handleSeriesFileUpload} />
+                      <button type="button" onClick={() => seriesFileInputRef.current?.click()} className="ui-button ui-button-primary">
+                        <Upload className="h-4 w-4" />
+                        Importar arquivo de séries
+                      </button>
+                      <span className="text-brand-muted text-xs">Linhas importadas: {seriesRows.length || 0}</span>
+                    </div>
+                    <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-panel px-3 py-2 text-xs font-semibold text-white">
+                      <input type="checkbox" checked={showOnlySeriesErrors} onChange={(e) => setShowOnlySeriesErrors(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />
+                      Exibir somente erros
+                    </label>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+                  <div className="panel-shadow h-full overflow-auto rounded-2xl border border-brand-border bg-brand-card/60">
+                    {seriesValidationResults.length === 0 ? (
+                      <EmptyState compact icon={FileCheck2} title="Nenhum arquivo validado" description="Importe o arquivo extraído do sistema para verificar se as séries estão corretas nos grupos Tanque, Ferragem e Núcleo." />
+                    ) : visibleSeriesValidationResults.length === 0 ? (
+                      <EmptyState compact icon={Check} title="Nenhum erro encontrado" description="Todas as séries visíveis estão consistentes com as regras aplicadas." />
+                    ) : (
+                      <table className="min-w-[1180px] w-full border-collapse">
+                        <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                          <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
+                            <th className="p-3 px-4 font-bold w-[110px]">Status</th>
+                            <th className="p-3 px-4 font-bold w-[95px]">OP</th>
+                            <th className="p-3 px-4 font-bold w-[120px]">Grupo</th>
+                            <th className="p-3 px-4 font-bold w-[150px]">Série</th>
+                            <th className="p-3 px-4 font-bold w-[80px]">QTD</th>
+                            <th className="p-3 px-4 font-bold">Setores</th>
+                            <th className="p-3 px-4 font-bold">Datas</th>
+                            <th className="p-3 px-4 font-bold">Resultado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleSeriesValidationResults.map((result, index) => (
+                            <tr key={`${result.status}_${result.op}_${result.grupo}_${result.lote}_${index}`} className="border-b border-brand-border/70 transition-colors hover:bg-brand-surface/60">
+                              <td className="p-3 px-4">
+                                <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${result.status === 'OK' ? 'border-brand-accent/30 bg-brand-accent/10 text-brand-accent' : 'border-red-400/30 bg-red-400/10 text-red-300'}`}>
+                                  <span className="h-1.5 w-1.5 rounded-full bg-current" />{result.status}
+                                </span>
+                              </td>
+                              <td className="p-3 px-4 font-mono font-bold text-brand-accent">{result.op}</td>
+                              <td className="p-3 px-4 text-sm font-semibold text-white">{result.grupo}</td>
+                              <td className="p-3 px-4 font-mono text-white">{result.lote}</td>
+                              <td className="p-3 px-4 font-mono text-white">{result.qtd ?? '-'}</td>
+                              <td className="p-3 px-4 text-xs text-brand-soft">{result.setores}</td>
+                              <td className="p-3 px-4 text-xs text-brand-muted">{result.datas}</td>
+                              <td className="p-3 px-4 text-xs text-brand-muted">{result.observacao}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : activeTab === 'dashboard' ? (
               displayedSteps.length === 0 ? (
                 <EmptyState
                   icon={BarChart3}
