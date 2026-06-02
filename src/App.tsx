@@ -1252,16 +1252,16 @@ const rowVisualInfo = useMemo(() => {
 
   return (
     <div className="app-shell flex h-dvh min-h-[520px] w-full flex-col overflow-hidden font-sans">
-      <header className="relative z-10 shrink-0 border-b border-brand-border bg-brand-panel/95 px-4 py-3 backdrop-blur sm:px-6">
+      <header className="relative z-10 shrink-0 border-b border-brand-border bg-brand-panel/95 px-3 py-2 backdrop-blur sm:px-4">
         <span className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-accent/70 to-transparent" />
-        <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/25 bg-brand-accent/10 text-brand-accent">
-              <Factory className="h-5 w-5" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-accent/25 bg-brand-accent/10 text-brand-accent">
+              <Factory className="h-4 w-4" />
             </div>
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-muted">ITAM / PCP</p>
-              <h1 className="truncate text-lg font-bold tracking-tight text-white sm:text-xl">
+              <h1 className="truncate text-base font-bold tracking-tight text-white sm:text-lg">
                 Programação de <span className="text-brand-accent">Produção</span>
               </h1>
             </div>
@@ -1322,7 +1322,7 @@ const rowVisualInfo = useMemo(() => {
       </div>
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="hidden w-[272px] shrink-0 flex-col overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-5 lg:flex">
+        <aside className="hidden w-[224px] shrink-0 flex-col overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-3 lg:flex">
           <FilterBar 
             filters={filters} 
             setFilters={setFilters} 
@@ -1331,15 +1331,15 @@ const rowVisualInfo = useMemo(() => {
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-border bg-brand-panel/55 px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-border bg-brand-panel/55 px-3 py-2 sm:px-4">
             <div role="tablist" aria-label="Visualização da programação" className="flex items-center gap-1 rounded-xl border border-brand-border bg-brand-panel p-1">
-              <button type="button" role="tab" aria-selected={activeTab === 'programacao'} onClick={() => setActiveTab('programacao')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'programacao' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+              <button type="button" role="tab" aria-selected={activeTab === 'programacao'} onClick={() => setActiveTab('programacao')} className={`tab-button flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeTab === 'programacao' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
                 <List className="h-4 w-4" /> Programação
               </button>
-              <button type="button" role="tab" aria-selected={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'dashboard' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+              <button type="button" role="tab" aria-selected={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} className={`tab-button flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeTab === 'dashboard' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
                 <BarChart3 className="h-4 w-4" /> Dashboard
               </button>
-              <button type="button" role="tab" aria-selected={activeTab === 'validarSerie'} onClick={() => setActiveTab('validarSerie')} className={`tab-button flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'validarSerie' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+              <button type="button" role="tab" aria-selected={activeTab === 'validarSerie'} onClick={() => setActiveTab('validarSerie')} className={`tab-button flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeTab === 'validarSerie' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
                 <FileCheck2 className="h-4 w-4" /> Validar Série
               </button>
             </div>
@@ -1363,7 +1363,7 @@ const rowVisualInfo = useMemo(() => {
             </aside>
           )}
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-brand-border px-4 py-3 sm:px-5">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-brand-border px-3 py-2 sm:px-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Agenda de produção</p>
               <p className="mt-1 text-xs text-brand-soft">
@@ -1371,7 +1371,7 @@ const rowVisualInfo = useMemo(() => {
                 {activeFilterCount > 0 && ` / ${activeFilterCount} filtro(s) ativo(s)`}
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {sankhyaRows.length > 0 && (
                 <>
                   <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-white">
@@ -1471,93 +1471,92 @@ const rowVisualInfo = useMemo(() => {
                   description={calculatedSteps.length === 0 ? 'Importe o arquivo e gere a programação para visualizar indicadores por setor.' : 'Ajuste os filtros para visualizar os indicadores disponíveis.'}
                 />
               ) : (
-              <div className="h-full overflow-y-auto p-4 sm:p-5">
-                <div className="grid grid-cols-1 items-start gap-5 2xl:grid-cols-[1fr_270px]">
-                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 3xl:grid-cols-3">
-                    {dashboardStats.map(item => {
-                      const total = Object.values(item.stats).reduce<number>((a, b) => a + Number(b), 0);
-                      const segments = buildDonutSegments(item.stats, total);
-
-                      return (
-                        <article key={item.group} className="panel-shadow flex min-h-[248px] flex-col justify-between rounded-2xl border border-brand-border bg-brand-card p-4">
-                          <div className="mb-5 flex items-start justify-between gap-4">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent">
-                                <Factory className="h-5 w-5" />
-                              </div>
-                              <h3 className="break-words text-sm font-bold leading-tight text-white">{item.group}</h3>
-                            </div>
-                            <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-brand-muted" />
+                <div className="dashboard-table-scroll h-full overflow-auto p-3">
+                  <div className="panel-shadow overflow-hidden rounded-2xl border border-brand-border bg-brand-card/70">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-border bg-brand-panel/80 px-4 py-3">
+                      <div>
+                        <h2 className="text-sm font-bold text-white">Resumo por setor</h2>
+                        <p className="text-[11px] text-brand-muted">Visualização compacta com os mesmos status e filtros da programação.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {DASHBOARD_BUCKETS.map(bucket => (
+                          <div key={bucket.key} className="flex items-center gap-1.5 text-[11px] font-semibold text-brand-soft" title={bucket.description}>
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: bucket.color }} />
+                            {bucket.label}
                           </div>
-
-                          <div className="mb-5 flex items-center gap-5">
-                            <div className="relative h-24 w-24 shrink-0">
-                              <svg viewBox="0 0 42 42" className="h-24 w-24 -rotate-90">
-                                <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#27303A" strokeWidth="5" />
-                                {segments.map(segment => (
-                                  <circle
-                                    key={segment.key}
-                                    cx="21"
-                                    cy="21"
-                                    r="15.915"
-                                    fill="transparent"
-                                    stroke={segment.color}
-                                    strokeWidth="5"
-                                    strokeDasharray={segment.dashArray}
-                                    strokeDashoffset={segment.dashOffset}
-                                    strokeLinecap="butt"
-                                  />
-                                ))}
-                              </svg>
-                              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                                <span className="text-xl font-bold leading-none text-white">{total}</span>
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-muted">total</span>
-                              </div>
-                            </div>
-
-                            <div className="min-w-0 flex-1 space-y-2">
-                              {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
-                                <div key={bucket.key} className="grid grid-cols-[10px_1fr] items-center gap-2 text-xs">
-                                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: bucket.color }} />
-                                  <span className="truncate font-semibold text-brand-soft">{bucket.label}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="space-y-2 border-t border-brand-border/70 pt-3">
-                            {DASHBOARD_BUCKETS.filter(bucket => item.stats[bucket.key] > 0).map(bucket => (
-                              <div key={bucket.key} className="flex items-center justify-between gap-3 text-xs">
-                                <span className="font-medium text-brand-soft">{bucket.label}</span>
-                                <span className="whitespace-nowrap text-right font-mono text-brand-muted">
-                                  {item.stats[bucket.key]} ({total ? ((Number(item.stats[bucket.key]) / total) * 100).toFixed(1).replace('.', ',') : '0,0'}%)
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="mt-4 text-right text-xs text-brand-muted">{total} registros</div>
-                        </article>
-                      );
-                    })}
-                  </div>
-
-                  <aside className="rounded-2xl border border-brand-border bg-brand-card p-4 2xl:sticky 2xl:top-4">
-                    <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.24em] text-brand-muted">Legenda</h3>
-                    <div className="space-y-3">
-                      {DASHBOARD_BUCKETS.map(bucket => (
-                        <div key={bucket.key} className="rounded-xl border border-brand-border/70 bg-brand-panel/70 p-3.5">
-                          <div className="mb-2 flex items-center gap-3">
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: bucket.color }} />
-                            <span className="text-sm font-semibold text-white">{bucket.label}</span>
-                          </div>
-                          <p className="pl-6 text-xs leading-relaxed text-brand-muted">{bucket.description}</p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </aside>
+
+                    <table className="dashboard-summary-table w-full min-w-[1120px] border-collapse">
+                      <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                        <tr className="text-left text-[10px] uppercase tracking-[0.16em] text-brand-muted">
+                          <th className="px-4 py-3 font-bold">Setor</th>
+                          <th className="px-4 py-3 text-right font-bold">Total</th>
+                          {DASHBOARD_BUCKETS.map(bucket => (
+                            <th key={bucket.key} className="px-4 py-3 text-right font-bold">{bucket.label}</th>
+                          ))}
+                          <th className="px-4 py-3 font-bold">Progresso</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboardStats.map(item => {
+                          const total = Object.values(item.stats).reduce<number>((a, b) => a + Number(b), 0);
+                          const conformePct = total ? (Number(item.stats.conforme) / total) * 100 : 0;
+
+                          return (
+                            <tr key={item.group} className="border-b border-brand-border/60 transition-colors hover:bg-brand-surface/55">
+                              <td className="px-4 py-3">
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-brand-accent/20 bg-brand-accent/10 text-brand-accent">
+                                    <Factory className="h-4 w-4" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-bold text-white" title={item.group}>{item.group}</p>
+                                    <p className="text-[10px] text-brand-muted">{total} registros analisados</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono text-base font-bold text-white">{total}</td>
+                              {DASHBOARD_BUCKETS.map(bucket => {
+                                const value = Number(item.stats[bucket.key]);
+                                const pct = total ? (value / total) * 100 : 0;
+
+                                return (
+                                  <td key={bucket.key} className="px-4 py-3 text-right font-mono text-xs text-brand-soft">
+                                    <span className="font-bold text-white">{value}</span>
+                                    <span className="ml-1 text-brand-muted">({pct.toFixed(1).replace('.', ',')}%)</span>
+                                  </td>
+                                );
+                              })}
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-3 min-w-[180px] flex-1 overflow-hidden rounded-full bg-brand-surface shadow-inner">
+                                    <div className="flex h-full w-full">
+                                      {DASHBOARD_BUCKETS.map(bucket => {
+                                        const value = Number(item.stats[bucket.key]);
+                                        const pct = total ? (value / total) * 100 : 0;
+                                        return value > 0 ? (
+                                          <span
+                                            key={bucket.key}
+                                            className="h-full"
+                                            style={{ width: `${pct}%`, backgroundColor: bucket.color }}
+                                            title={`${bucket.label}: ${value} (${pct.toFixed(1).replace('.', ',')}%)`}
+                                          />
+                                        ) : null;
+                                      })}
+                                    </div>
+                                  </div>
+                                  <span className="w-14 text-right font-mono text-xs font-bold text-brand-soft">{conformePct.toFixed(0)}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
               )
             ) : displayedSteps.length === 0 ? (
               <EmptyState
@@ -1891,9 +1890,9 @@ function EmptyState({ icon: Icon, title, description, compact = false }: { icon:
 
 function StatCard({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {
   return (
-    <div className="flex min-h-[82px] flex-col justify-center bg-brand-panel/75 px-4 py-3 sm:px-6">
-      <span className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-muted">{label}</span>
-      <span className={`font-mono text-2xl font-bold tracking-tight ${accent ? 'text-brand-accent' : 'text-white'}`}>{value}</span>
+    <div className="flex min-h-[56px] flex-col justify-center bg-brand-panel/75 px-4 py-2 sm:px-5">
+      <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-brand-muted">{label}</span>
+      <span className={`font-mono text-xl font-bold tracking-tight ${accent ? 'text-brand-accent' : 'text-white'}`}>{value}</span>
     </div>
   );
 }
