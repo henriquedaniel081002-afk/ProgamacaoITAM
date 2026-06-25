@@ -1022,34 +1022,28 @@ export default function App() {
 
 
   const filteredSteps = useMemo(() => {
-    const matchesNonDateFilters = (step: OPStep) => {
+    const matchesDirectFilters = (step: OPStep, ignoreDate = false) => {
+      if (!ignoreDate) {
+        if (filters.dateStart && step.usedDate < filters.dateStart) return false;
+        if (filters.dateEnd && step.usedDate > filters.dateEnd) return false;
+      }
       if (filters.sector && !getSectorsForFilter(filters.sector).includes(step.stepName)) return false;
       if (filters.linha && step.linha !== filters.linha) return false;
       if (filters.op && !step.op.toLowerCase().includes(filters.op.toLowerCase())) return false;
       return true;
     };
 
-    const matchesDateFilters = (step: OPStep) => {
-      if (filters.dateStart && step.usedDate < filters.dateStart) return false;
-      if (filters.dateEnd && step.usedDate > filters.dateEnd) return false;
-      return true;
-    };
+    const directSteps = calculatedSteps.filter(step => matchesDirectFilters(step));
 
-    const stepsMatchingNonDateFilters = calculatedSteps.filter(matchesNonDateFilters);
+    if (!filters.sector || showOnlyErrors || showOnlyPartial) {
+      return directSteps;
+    }
 
-    // Nova regra: o filtro de data seleciona quais OPs entram no resultado.
-    // Depois que uma OP entra, exibimos toda a programação dessa OP respeitando
-    // os demais filtros aplicados, inclusive setores do mesmo grupo e lotes futuros.
-    if (!filters.dateStart && !filters.dateEnd) return stepsMatchingNonDateFilters;
+    const opsInFilter = new Set(directSteps.map(step => step.op));
+    if (opsInFilter.size === 0) return directSteps;
 
-    const opsInsideDateRange = new Set(
-      stepsMatchingNonDateFilters
-        .filter(matchesDateFilters)
-        .map(step => normalizeOp(step.op))
-    );
-
-    return stepsMatchingNonDateFilters.filter(step => opsInsideDateRange.has(normalizeOp(step.op)));
-  }, [calculatedSteps, filters]);
+    return calculatedSteps.filter(step => opsInFilter.has(step.op) && matchesDirectFilters(step, true));
+  }, [calculatedSteps, filters, showOnlyErrors, showOnlyPartial]);
 
   const sectorFilterOptions = useMemo(() => getSectorFilterOptions(), []);
 
@@ -1158,13 +1152,19 @@ export default function App() {
 
 
   const baseDisplayedSteps = useMemo(() => {
-    if ((!showOnlyErrors && !showOnlyPartial) || sankhyaRows.length === 0) return defaultSortedSteps;
+    if (sankhyaRows.length === 0) return defaultSortedSteps;
+
     return defaultSortedSteps.filter(step => {
       const status = getMainValidationInfo(step)?.status;
       if (!status) return false;
       const isError = ERROR_STATUSES.includes(status);
       const isPartial = status === PARTIAL_STATUS;
-      return (showOnlyErrors && isError) || (showOnlyPartial && isPartial);
+
+      if (showOnlyErrors || showOnlyPartial) {
+        return (showOnlyErrors && isError) || (showOnlyPartial && isPartial);
+      }
+
+      return true;
     });
   }, [defaultSortedSteps, showOnlyErrors, showOnlyPartial, sankhyaRows.length, validationByPanelKey]);
 
