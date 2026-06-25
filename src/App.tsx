@@ -1022,14 +1022,33 @@ export default function App() {
 
 
   const filteredSteps = useMemo(() => {
-    return calculatedSteps.filter(step => {
-      if (filters.dateStart && step.usedDate < filters.dateStart) return false;
-      if (filters.dateEnd && step.usedDate > filters.dateEnd) return false;
+    const matchesNonDateFilters = (step: OPStep) => {
       if (filters.sector && !getSectorsForFilter(filters.sector).includes(step.stepName)) return false;
       if (filters.linha && step.linha !== filters.linha) return false;
       if (filters.op && !step.op.toLowerCase().includes(filters.op.toLowerCase())) return false;
       return true;
-    });
+    };
+
+    const matchesDateFilters = (step: OPStep) => {
+      if (filters.dateStart && step.usedDate < filters.dateStart) return false;
+      if (filters.dateEnd && step.usedDate > filters.dateEnd) return false;
+      return true;
+    };
+
+    const stepsMatchingNonDateFilters = calculatedSteps.filter(matchesNonDateFilters);
+
+    // Nova regra: o filtro de data seleciona quais OPs entram no resultado.
+    // Depois que uma OP entra, exibimos toda a programação dessa OP respeitando
+    // os demais filtros aplicados, inclusive setores do mesmo grupo e lotes futuros.
+    if (!filters.dateStart && !filters.dateEnd) return stepsMatchingNonDateFilters;
+
+    const opsInsideDateRange = new Set(
+      stepsMatchingNonDateFilters
+        .filter(matchesDateFilters)
+        .map(step => normalizeOp(step.op))
+    );
+
+    return stepsMatchingNonDateFilters.filter(step => opsInsideDateRange.has(normalizeOp(step.op)));
   }, [calculatedSteps, filters]);
 
   const sectorFilterOptions = useMemo(() => getSectorFilterOptions(), []);
