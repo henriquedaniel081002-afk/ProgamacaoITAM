@@ -669,15 +669,83 @@ export default function App() {
 
   const getSeriesGroup = (sector: string) => SERIES_GROUPS.find(group => group.sectors.includes(normalizeSectorName(sector)));
   const getSeriesKey = (row: SeriesRow) => `${normalizeOp(row.op)}|${row.serieInicial}|${row.serieFinal}`;
+  const getSeriesActivityKey = (row: SeriesRow) => row.atividade || 'SEM_CODIGO';
+  const getSeriesOrderGroupKey = (row: SeriesRow) => `${normalizeOp(row.op)}|${getSeriesActivityKey(row)}|${normalizeText(row.setor)}`;
+  const formatSeriesRange = (row: SeriesRow) => `${row.serieInicial}-${row.serieFinal}`;
   const formatSeriesDateList = (rows: SeriesRow[]) => rows
     .slice()
     .sort((a, b) => a.data.localeCompare(b.data) || a.setor.localeCompare(b.setor))
     .map(row => `${formatToBRLDate(row.data)} - ${row.setor}`)
     .join(' | ');
+  const formatDateSeriesSequence = (rows: SeriesRow[]) => rows
+    .slice()
+    .sort((a, b) => a.data.localeCompare(b.data) || a.serieInicial - b.serieInicial || a.serieFinal - b.serieFinal)
+    .map(row => `${formatToBRLDate(row.data)}: ${formatSeriesRange(row)}`)
+    .join(' | ');
+  const formatRangeList = (rows: SeriesRow[]) => rows
+    .slice()
+    .sort((a, b) => a.serieInicial - b.serieInicial || a.serieFinal - b.serieFinal)
+    .map(formatSeriesRange)
+    .join(', ');
+  const compareRangeLists = (left: SeriesRow[], right: SeriesRow[]) => {
+    const leftRanges = left.map(formatSeriesRange).sort();
+    const rightRanges = right.map(formatSeriesRange).sort();
+    return leftRanges.length === rightRanges.length && leftRanges.every((range, index) => range === rightRanges[index]);
+  };
+
+  const addDateSeriesOrderErrors = (rowsToValidate: SeriesRow[], results: SeriesValidationResult[]) => {
+    const rowsByOpActivitySector = new Map<string, SeriesRow[]>();
+
+    rowsToValidate
+      .filter(row => Number.isFinite(row.serieInicial) && Number.isFinite(row.serieFinal) && row.serieInicial > 0 && row.serieFinal > 0)
+      .forEach(row => {
+        const key = getSeriesOrderGroupKey(row);
+        const list = rowsByOpActivitySector.get(key) || [];
+        list.push(row);
+        rowsByOpActivitySector.set(key, list);
+      });
+
+    rowsByOpActivitySector.forEach(groupRows => {
+      const dates = Array.from(new Set(groupRows.map(row => row.data))).sort();
+      if (dates.length < 2) return;
+
+      const first = groupRows[0];
+      const sortedBySeries = groupRows
+        .slice()
+        .sort((a, b) => a.serieInicial - b.serieInicial || a.serieFinal - b.serieFinal || a.data.localeCompare(b.data));
+
+      let cursor = 0;
+      dates.forEach(date => {
+        const actualRows = groupRows
+          .filter(row => row.data === date)
+          .sort((a, b) => a.serieInicial - b.serieInicial || a.serieFinal - b.serieFinal);
+        const expectedRows = sortedBySeries.slice(cursor, cursor + actualRows.length);
+        cursor += actualRows.length;
+
+        if (compareRangeLists(actualRows, expectedRows)) return;
+
+        const activityLabel = first.atividade ? `Atividade ${first.atividade}` : 'Atividade não informada';
+        results.push({
+          status: 'Erro',
+          op: normalizeOp(first.op),
+          grupo: 'Ordem Data/Série',
+          lote: formatRangeList(actualRows),
+          setores: `${first.setor} / ${activityLabel}`,
+          qtd: actualRows.reduce((sum, row) => sum + normalizeQty(row.qtd), 0),
+          serieInicial: Math.min(...actualRows.map(row => row.serieInicial)),
+          serieFinal: Math.max(...actualRows.map(row => row.serieFinal)),
+          datas: `${formatToBRLDate(date)} | sequência: ${formatDateSeriesSequence(groupRows)}`,
+          observacao: `Série inicial fora da ordem das datas. Atual nesta data: ${formatRangeList(actualRows)}. Esperado para esta posição: ${formatRangeList(expectedRows)}. Regra: a menor data deve receber a menor série inicial dentro da mesma OP, atividade e setor.`
+        });
+      });
+    });
+  };
 
   const buildSeriesValidationResults = (rows: SeriesRow[]) => {
     const results: SeriesValidationResult[] = [];
     const relevantRows = rows.filter(row => getSeriesGroup(row.setor));
+
+    addDateSeriesOrderErrors(rows, results);
 
     relevantRows.forEach(row => {
       const tamanhoFaixa = row.serieFinal - row.serieInicial + 1;
@@ -1452,7 +1520,7 @@ const rowVisualInfo = useMemo(() => {
                     <div>
                       <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Validação de séries</p>
                       <p className="mt-1 max-w-3xl text-xs leading-relaxed text-brand-soft">
-                        Importe o relatório com OP-Pai, Dt.Programada, Atividade/Descr.Atividade, Qtd.Programada, Série Inicial e Série Final. A validação confere Tanque, Ferragem e Núcleo sem alterar a programação existente.
+                        Importe o relatório com OP-Pai, Dt.Programada, Atividade/Descr.Atividade, Qtd.Programada, Série Inicial e Série Final. A validação confere a ordem Data/Série por OP + atividade + setor e mantém as regras de Tanque, Ferragem e Núcleo sem alterar a programação existente.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -1478,7 +1546,7 @@ const rowVisualInfo = useMemo(() => {
                 <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-4">
                   <div className="panel-shadow h-full overflow-auto rounded-2xl border border-brand-border bg-brand-card/60">
                     {seriesValidationResults.length === 0 ? (
-                      <EmptyState compact icon={FileCheck2} title="Nenhum arquivo validado" description="Importe o arquivo extraído do sistema para verificar se as séries estão corretas nos grupos Tanque, Ferragem e Núcleo." />
+                      <EmptyState compact icon={FileCheck2} title="Nenhum arquivo validado" description="Importe o arquivo extraído do sistema para verificar se a menor data está com a menor série inicial e se as séries estão corretas nos grupos Tanque, Ferragem e Núcleo." />
                     ) : visibleSeriesValidationResults.length === 0 ? (
                       <EmptyState compact icon={Check} title="Nenhum erro encontrado" description="Todas as séries visíveis estão consistentes com as regras aplicadas." />
                     ) : (
