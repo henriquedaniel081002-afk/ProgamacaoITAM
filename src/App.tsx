@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { BarChart3, Calendar as CalendarIcon, Copy, Check, FileSpreadsheet, FlaskConical, X, FileCheck2, ChevronRight, Factory, Inbox, List, SlidersHorizontal, Upload, Zap } from 'lucide-react';
+import { BarChart3, Calendar as CalendarIcon, Copy, Check, FileSpreadsheet, FlaskConical, X, FileCheck2, ChevronRight, Factory, Inbox, List, SlidersHorizontal, Upload, Zap, ArrowUpDown } from 'lucide-react';
 import { 
   RawOP, 
   OPStep, 
@@ -21,7 +21,7 @@ type SeriesValidationResult = { status: SeriesValidationStatus; op: string; grup
 type ValidationStatus = 'OK' | 'Programado parcial' | 'Não programado' | 'Data divergente' | 'Quantidade divergente' | 'Duplicado' | 'Extra';
 type ValidationResult = { status: ValidationStatus; op: string; dataPainel?: string; dataSistema?: string; setor: string; qtdPainel?: number; qtdSistema?: number; linhaPainel?: string; linhaSistema?: string; observacao: string; };
 type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; observacao: string; };
-type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status';
+type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status' | 'opDate';
 type SortDirection = 'asc' | 'desc';
 type SortConfig = { key: SortKey; direction: SortDirection } | null;
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
@@ -1173,6 +1173,25 @@ export default function App() {
     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
   };
 
+  const compareOpDateOrder = (a: OPStep, b: OPStep) => {
+    const opCompare = a.op.localeCompare(b.op, undefined, { numeric: true, sensitivity: 'base' });
+    if (opCompare !== 0) return opCompare;
+
+    const dateCompare = a.usedDate.localeCompare(b.usedDate);
+    if (dateCompare !== 0) return dateCompare;
+
+    const groupCompare = getSectorGroupOrder(a.stepName) - getSectorGroupOrder(b.stepName);
+    if (groupCompare !== 0) return groupCompare;
+
+    const sectorOrderCompare = getSectorOrderInsideGroup(a.stepName) - getSectorOrderInsideGroup(b.stepName);
+    if (sectorOrderCompare !== 0) return sectorOrderCompare;
+
+    const qtdCompare = normalizeQty(a.qtd_mf) - normalizeQty(b.qtd_mf);
+    if (qtdCompare !== 0) return qtdCompare;
+
+    return a.stepName.localeCompare(b.stepName, undefined, { numeric: true, sensitivity: 'base' }) || a.linha.localeCompare(b.linha, undefined, { numeric: true, sensitivity: 'base' });
+  };
+
   const getSortValue = (step: OPStep, key: SortKey): string | number => {
     if (key === 'op') return step.op;
     if (key === 'usedDate') return step.usedDate;
@@ -1187,6 +1206,8 @@ export default function App() {
     if (!sortConfig) return baseDisplayedSteps;
 
     return [...baseDisplayedSteps].sort((a, b) => {
+      if (sortConfig.key === 'opDate') return compareOpDateOrder(a, b);
+
       const primary = compareValues(getSortValue(a, sortConfig.key), getSortValue(b, sortConfig.key));
       const direction = sortConfig.direction === 'asc' ? 1 : -1;
       if (primary !== 0) return primary * direction;
@@ -1201,6 +1222,12 @@ export default function App() {
       return null;
     });
   };
+
+  const handleAutoOpDateSort = () => {
+    setSortConfig({ key: 'opDate', direction: 'asc' });
+  };
+
+  const isAutoOpDateSortActive = sortConfig?.key === 'opDate';
 
   const getSortIndicator = (key: SortKey) => {
     if (!sortConfig || sortConfig.key !== key) return '↕';
@@ -1403,6 +1430,15 @@ const rowVisualInfo = useMemo(() => {
                   </label>
                 </>
               )}
+              <button
+                type="button"
+                onClick={handleAutoOpDateSort}
+                className={`ui-button ${isAutoOpDateSortActive ? 'ui-button-primary' : 'ui-button-secondary'}`}
+                title="Ordenar automaticamente por OP e data crescente, sem alterar os dados da programação"
+              >
+                <ArrowUpDown className={`h-4 w-4 ${isAutoOpDateSortActive ? '' : 'text-brand-accent'}`} />
+                Ordem OP/Data
+              </button>
               <span className="rounded-lg border border-brand-border/70 bg-brand-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-brand-muted">{filters.dateStart || filters.dateEnd ? `${filters.dateStart ? formatToBRLDate(filters.dateStart) : 'Início'} até ${filters.dateEnd ? formatToBRLDate(filters.dateEnd) : 'Fim'}` : 'Todas as datas'}</span>
             </div>
           </div>
