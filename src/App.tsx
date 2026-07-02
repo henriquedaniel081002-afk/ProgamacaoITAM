@@ -136,7 +136,7 @@ const SECTOR_SANKHYA_CODES: Record<string, string[]> = {
   'Isolante': ['2694'],
   'Montagem Final': ['2701', '2436', '2198', '2187'],
   'Montagem Núcleo': ['2716', '2473'],
-  'MPA': ['2855', '2460', '2907'],
+  'MPA': ['2855', '2460', '2907', '2896'],
   'Pintura Ferragem': ['2819', '2512'],
   'Pintura Tanque': ['2885', '2833'],
   'Solda Tanque': ['2883', '2831'],
@@ -153,7 +153,7 @@ const COD_TO_SETOR: Record<string, string> = {
   '2694':'ISOLANTE',
   '2701':'Montagem Final','2436':'Montagem Final','2198':'Montagem Final','2187':'Montagem Final',
   '2716':'MONTAGEM NUCLEO','2473':'MONTAGEM NUCLEO',
-  '2855':'MPA','2460':'MPA','2907':'MPA',
+  '2855':'MPA','2460':'MPA','2907':'MPA','2896':'MPA',
   '2819':'Pintura Ferragem','2512':'Pintura Ferragem',
   '2885':'Pintura Tanque','2833':'Pintura Tanque',
   '2883':'Solda Tanque','2831':'Solda Tanque'
