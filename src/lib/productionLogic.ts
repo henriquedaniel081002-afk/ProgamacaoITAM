@@ -109,8 +109,13 @@ export function generateStepsForOP(rawOP: RawOP, config: ValidDaysConfig): OPSte
   const mfDate = parseISO(rawOP.data_mf);
   const stepsForLinha = getProductionStepsForLinha(rawOP.linha);
 
+  const normalizedLinha = normalizeLinha(rawOP.linha);
+
   return stepsForLinha.map((stepConfig) => {
-    const calcDate = subtractValidDays(mfDate, stepConfig.offsetDays, config);
+    const offsetDays = stepConfig.name === 'Corte Núcleo' && (normalizedLinha === 'MON' || normalizedLinha === 'BIF')
+      ? 3
+      : stepConfig.offsetDays;
+    const calcDate = subtractValidDays(mfDate, offsetDays, config);
     const dateStr = format(calcDate, 'yyyy-MM-dd');
     
     return {
