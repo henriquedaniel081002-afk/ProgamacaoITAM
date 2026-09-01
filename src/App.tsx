@@ -178,6 +178,7 @@ const STORAGE_KEYS = {
   validationResults: 'itam_prog_validation_results_v1',
   showOnlyErrors: 'itam_prog_show_only_errors_v1',
   showOnlyPartial: 'itam_prog_show_only_partial_v1',
+  optionalStepsConfig: 'itam_prog_optional_steps_config_v1',
 };
 
 const readStorage = <T,>(key: string, fallback: T): T => {
@@ -207,15 +208,43 @@ const DEFAULT_VALID_DAYS_CONFIG: ValidDaysConfig = {
   extraValidDays: []
 };
 
+type OptionalStepsConfig = {
+  pinturaFerragem: boolean;
+  montagemNucleo: boolean;
+};
+
+const DEFAULT_OPTIONAL_STEPS_CONFIG: OptionalStepsConfig = {
+  pinturaFerragem: true,
+  montagemNucleo: true,
+};
+
+const applyOptionalStepsConfig = (steps: OPStep[], config: OptionalStepsConfig) =>
+  steps.filter(step => {
+    if (step.stepName === 'Pintura Ferragem' && !config.pinturaFerragem) return false;
+    if (step.stepName === 'Montagem Núcleo' && !config.montagemNucleo) return false;
+    return true;
+  });
+
 export default function App() {
   const [validDaysConfig, setValidDaysConfig] = useState<ValidDaysConfig>(() =>
     readStorage(STORAGE_KEYS.validDaysConfig, DEFAULT_VALID_DAYS_CONFIG)
   );
   
+  const [optionalStepsConfig, setOptionalStepsConfig] = useState<OptionalStepsConfig>(() =>
+    readStorage(STORAGE_KEYS.optionalStepsConfig, DEFAULT_OPTIONAL_STEPS_CONFIG)
+  );
+  const [isOptionalStepsOpen, setIsOptionalStepsOpen] = useState(false);
+  const [optionalStepsDraft, setOptionalStepsDraft] = useState<OptionalStepsConfig>(() =>
+    readStorage(STORAGE_KEYS.optionalStepsConfig, DEFAULT_OPTIONAL_STEPS_CONFIG)
+  );
+
   const [rawOPs, setRawOPs] = useState<RawOP[]>(() => readStorage(STORAGE_KEYS.rawOPs, []));
   const [calculatedSteps, setCalculatedSteps] = useState<OPStep[]>(() =>
-    readStorage<OPStep[]>(STORAGE_KEYS.calculatedSteps, [])
-      .filter(step => shouldIncludeProductionStep(step.linha, step.stepName))
+    applyOptionalStepsConfig(
+      readStorage<OPStep[]>(STORAGE_KEYS.calculatedSteps, [])
+        .filter(step => shouldIncludeProductionStep(step.linha, step.stepName)),
+      optionalStepsConfig
+    )
   );
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
@@ -254,6 +283,10 @@ export default function App() {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.validDaysConfig, validDaysConfig);
   }, [validDaysConfig]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.optionalStepsConfig, optionalStepsConfig);
+  }, [optionalStepsConfig]);
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.rawOPs, rawOPs);
@@ -1037,7 +1070,7 @@ export default function App() {
       qtd_mf: 0,
     };
 
-    setTestSteps(generateStepsForOP(simulatedOP, validDaysConfig));
+    setTestSteps(applyOptionalStepsConfig(generateStepsForOP(simulatedOP, validDaysConfig), optionalStepsConfig));
   };
 
   const handleOpenTestModal = () => {
@@ -1051,6 +1084,32 @@ export default function App() {
     setTestSteps([]);
   };
 
+  const handleSaveOptionalSteps = (newConfig: OptionalStepsConfig) => {
+    setOptionalStepsConfig(newConfig);
+
+    if (rawOPs.length > 0) {
+      const manualOverrides = new Map<string, string>();
+      calculatedSteps.forEach(step => {
+        if (step.manualDate) manualOverrides.set(step.id, step.manualDate);
+      });
+
+      let refreshedSteps = rawOPs.flatMap(op =>
+        applyOptionalStepsConfig(generateStepsForOP(op, validDaysConfig), newConfig)
+      );
+
+      refreshedSteps = refreshedSteps.map(step => {
+        const manualDate = manualOverrides.get(step.id);
+        return manualDate ? { ...step, manualDate, usedDate: manualDate } : step;
+      });
+
+      const uniqueSteps = removeDuplicateSteps(refreshedSteps);
+      setCalculatedSteps(uniqueSteps);
+      if (sankhyaRows.length > 0) buildValidationResults(sankhyaRows, uniqueSteps);
+    }
+
+    setIsOptionalStepsOpen(false);
+  };
+
   const handleGenerate = () => {
     if (rawOPs.length === 0) {
       setErrorInfo('Importe um arquivo Excel primeiro!');
@@ -1061,7 +1120,7 @@ export default function App() {
     setErrorInfo(null);
     let newSteps: OPStep[] = [];
     rawOPs.forEach(op => {
-      const opSteps = generateStepsForOP(op, validDaysConfig);
+      const opSteps = applyOptionalStepsConfig(generateStepsForOP(op, validDaysConfig), optionalStepsConfig);
       newSteps.push(...opSteps);
     });
 
@@ -1402,6 +1461,13 @@ const rowVisualInfo = useMemo(() => {
             className="ui-button ui-button-secondary"
           >
             <CalendarIcon className="h-4 w-4 text-brand-accent" /> Calendário
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOptionalStepsDraft(optionalStepsConfig); setIsOptionalStepsOpen(true); }}
+            className="ui-button ui-button-secondary"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-brand-accent" /> Etapas opcionais
           </button>
           <button 
             type="button"
@@ -1790,6 +1856,52 @@ const rowVisualInfo = useMemo(() => {
           </div>
         </section>
       </main>
+
+      {isOptionalStepsOpen && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby="optional-steps-title" className="panel-shadow w-full max-w-md overflow-hidden rounded-2xl border border-brand-border bg-brand-card">
+            <div className="flex items-start justify-between gap-4 border-b border-brand-border px-5 py-4">
+              <div>
+                <h2 id="optional-steps-title" className="text-lg font-bold text-white">Etapas opcionais</h2>
+                <p className="mt-1 text-xs text-brand-muted">Configuração global aplicada a todas as OPs.</p>
+              </div>
+              <button type="button" onClick={() => setIsOptionalStepsOpen(false)} className="ui-icon-button" aria-label="Fechar">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 p-5">
+              <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-brand-border bg-brand-panel/50 p-4">
+                <div>
+                  <div className="text-sm font-semibold text-white">Programar Pintura Ferragem</div>
+                  <div className="mt-1 text-xs text-brand-muted">Quando desativado, não aparece em nenhuma OP.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={optionalStepsDraft.pinturaFerragem}
+                  onChange={e => setOptionalStepsDraft(current => ({ ...current, pinturaFerragem: e.target.checked }))}
+                  className="h-5 w-5 accent-emerald-400"
+                />
+              </label>
+              <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-brand-border bg-brand-panel/50 p-4">
+                <div>
+                  <div className="text-sm font-semibold text-white">Programar Montagem Núcleo</div>
+                  <div className="mt-1 text-xs text-brand-muted">Quando desativado, não aparece em nenhuma OP.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={optionalStepsDraft.montagemNucleo}
+                  onChange={e => setOptionalStepsDraft(current => ({ ...current, montagemNucleo: e.target.checked }))}
+                  className="h-5 w-5 accent-emerald-400"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-brand-border px-5 py-4">
+              <button type="button" onClick={() => setIsOptionalStepsOpen(false)} className="ui-button ui-button-secondary">Cancelar</button>
+              <button type="button" onClick={() => handleSaveOptionalSteps(optionalStepsDraft)} className="ui-button ui-button-primary">Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Calendar Config Modal */}
       <CalendarModal 
