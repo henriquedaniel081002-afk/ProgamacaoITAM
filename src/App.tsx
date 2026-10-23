@@ -26,6 +26,9 @@ type MainValidationInfo = { status: ValidationStatus; dataSistema?: string; obse
 type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status' | 'opDate';
 type SortDirection = 'asc' | 'desc';
 type SortConfig = { key: SortKey; direction: SortDirection } | null;
+// Ordenação específica de Núcleo TRI: não afeta a ordenação da Programação principal.
+type NucleoTriSortKey = 'op' | 'data' | 'quantidade' | 'modelo' | 'cliente' | 'opDate';
+type NucleoTriSortConfig = { key: NucleoTriSortKey; direction: SortDirection };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 const PARTIAL_STATUS: ValidationStatus = 'Programado parcial';
 type DisplayStatus = ValidationStatus | 'Sem validação';
@@ -262,6 +265,8 @@ export default function App() {
   const [nucleoTriOpFilter, setNucleoTriOpFilter] = useState('');
   const [nucleoTriDateStart, setNucleoTriDateStart] = useState('');
   const [nucleoTriDateEnd, setNucleoTriDateEnd] = useState('');
+  const [nucleoTriOnlyMultipleDates, setNucleoTriOnlyMultipleDates] = useState(false);
+  const [nucleoTriSortConfig, setNucleoTriSortConfig] = useState<NucleoTriSortConfig>({ key: 'data', direction: 'asc' });
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   // Somente a última linha copiada fica destacada.
   // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
@@ -1054,11 +1059,74 @@ export default function App() {
     }
   };
 
-  const filteredNucleoTri = useMemo(() => nucleoTriEntries.filter(entry =>
-    (!nucleoTriOpFilter || entry.op.includes(nucleoTriOpFilter.trim())) &&
-    (!nucleoTriDateStart || entry.data >= nucleoTriDateStart) &&
-    (!nucleoTriDateEnd || entry.data <= nucleoTriDateEnd)
-  ), [nucleoTriEntries, nucleoTriOpFilter, nucleoTriDateStart, nucleoTriDateEnd]);
+  // Contagem de DIAS distintos no arquivo inteiro, independentemente dos filtros.
+  // O selo 2x significa 2 datas diferentes, nunca 2 registros no mesmo dia.
+  const nucleoTriDatesByOp = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    nucleoTriEntries.forEach(({ op, data }) => {
+      if (!result.has(op)) result.set(op, new Set());
+      result.get(op)!.add(data);
+    });
+    return result;
+  }, [nucleoTriEntries]);
+
+  const nucleoTriMultipleOps = useMemo(
+    () => [...nucleoTriDatesByOp.values()].filter(dates => dates.size > 1).length,
+    [nucleoTriDatesByOp]
+  );
+
+  const nucleoTriFilterCount = [nucleoTriOpFilter.trim(), nucleoTriDateStart, nucleoTriDateEnd].filter(Boolean).length + Number(nucleoTriOnlyMultipleDates);
+
+  const filteredNucleoTri = useMemo(() => {
+    const result = nucleoTriEntries.filter(entry =>
+      (!nucleoTriOpFilter.trim() || entry.op.includes(nucleoTriOpFilter.trim())) &&
+      (!nucleoTriDateStart || entry.data >= nucleoTriDateStart) &&
+      (!nucleoTriDateEnd || entry.data <= nucleoTriDateEnd) &&
+      (!nucleoTriOnlyMultipleDates || (nucleoTriDatesByOp.get(entry.op)?.size ?? 0) > 1)
+    );
+    // A lista é copiada antes de ordenar para nunca alterar o conteúdo importado.
+    return result.sort((a, b) => {
+      const compareOp = () => a.op.localeCompare(b.op, undefined, { numeric: true, sensitivity: 'base' });
+      const compareData = () => a.data.localeCompare(b.data);
+      const { key, direction } = nucleoTriSortConfig;
+      if (key === 'opDate') return compareOp() || compareData();
+      const cmp = key === 'quantidade'
+        ? a.quantidade - b.quantidade
+        : key === 'op' ? compareOp()
+        : key === 'data' ? compareData()
+        : String(a[key]).localeCompare(String(b[key]), undefined, { numeric: true, sensitivity: 'base' });
+      return cmp * (direction === 'asc' ? 1 : -1) || compareOp() || compareData();
+    });
+  }, [nucleoTriEntries, nucleoTriOpFilter, nucleoTriDateStart, nucleoTriDateEnd, nucleoTriOnlyMultipleDates, nucleoTriDatesByOp, nucleoTriSortConfig]);
+
+  // Indica o início de cada grupo de OP e alterna seu fundo sem buscas quadráticas.
+  const nucleoTriGroupStyles = useMemo(() => {
+    let lastOp = '';
+    let groupNumber = -1;
+    return filteredNucleoTri.map(({ op }) => {
+      const isFirstInOpGroup = op !== lastOp;
+      if (isFirstInOpGroup) { groupNumber++; lastOp = op; }
+      return { isFirstInOpGroup, toneClass: groupNumber % 2 === 0 ? 'bg-brand-card/40' : 'bg-brand-panel/65' };
+    });
+  }, [filteredNucleoTri]);
+
+  const handleNucleoTriSort = (key: Exclude<NucleoTriSortKey, 'opDate'>) => {
+    setNucleoTriSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const renderNucleoTriHeader = (label: string, key: Exclude<NucleoTriSortKey, 'opDate'>, width: string) => (
+    <th className={`font-bold ${width}`}>
+      <button type="button" onClick={() => handleNucleoTriSort(key)}
+        className="tab-button flex items-center gap-2 rounded-md text-left transition-colors hover:text-brand-accent"
+        title={`Ordenar por ${label}`}>
+        <span>{label}</span>
+        <span className="text-sm text-brand-accent/80">{nucleoTriSortConfig.key !== key ? '↕' : nucleoTriSortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+      </button>
+    </th>
+  );
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1582,6 +1650,31 @@ const rowVisualInfo = useMemo(() => {
       </div>
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
+        {activeTab === 'nucleoTri' && (
+          <aside className="hidden w-[224px] shrink-0 flex-col gap-5 overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-3 lg:flex" aria-label="Filtros Núcleo TRI">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-muted"><span className="mr-2 text-brand-accent">●</span>Filtros</h3>
+              <button type="button" className="text-[10px] font-semibold tracking-wide text-brand-soft hover:text-brand-accent" onClick={() => { setNucleoTriOpFilter(''); setNucleoTriDateStart(''); setNucleoTriDateEnd(''); setNucleoTriOnlyMultipleDates(false); }}>Limpar</button>
+            </div>
+            <div className="rounded-xl border border-brand-border bg-brand-bg/40 p-3">
+              <p className="mb-3 text-xs font-semibold text-white">Data Programada</p>
+              <label className="mb-3 flex flex-col gap-2 text-[10px] font-semibold uppercase tracking-widest text-brand-muted">De
+                <input type="date" value={nucleoTriDateStart} onChange={e => setNucleoTriDateStart(e.target.value)} className="w-full rounded-lg border border-brand-border bg-brand-card px-2 py-2 text-xs font-medium tracking-normal text-white outline-none focus:border-brand-accent" />
+              </label>
+              <label className="flex flex-col gap-2 text-[10px] font-semibold uppercase tracking-widest text-brand-muted">Até
+                <input type="date" value={nucleoTriDateEnd} onChange={e => setNucleoTriDateEnd(e.target.value)} className="w-full rounded-lg border border-brand-border bg-brand-card px-2 py-2 text-xs font-medium tracking-normal text-white outline-none focus:border-brand-accent" />
+              </label>
+            </div>
+            <label className="flex flex-col gap-2 text-xs font-semibold text-white">Buscar OP
+              <input value={nucleoTriOpFilter} onChange={e => setNucleoTriOpFilter(e.target.value)} placeholder="Digite a OP" className="w-full rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-normal text-white outline-none focus:border-brand-accent" />
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-brand-border bg-brand-card p-3 text-xs font-semibold text-white">
+              <input type="checkbox" checked={nucleoTriOnlyMultipleDates} onChange={e => setNucleoTriOnlyMultipleDates(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />
+              OPs em mais de um dia
+            </label>
+            <p className="text-[11px] text-brand-muted">{nucleoTriMultipleOps} OP(s) com duas ou mais datas no arquivo importado.</p>
+          </aside>
+        )}
         {activeTab !== 'nucleoTri' && <aside className="hidden w-[224px] shrink-0 flex-col overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-3 lg:flex">
           <FilterBar 
             filters={filters} 
@@ -1609,16 +1702,28 @@ const rowVisualInfo = useMemo(() => {
 
             <button
               type="button"
-              className={`ui-button ui-button-secondary lg:hidden ${activeTab === 'nucleoTri' ? 'hidden' : ''}`}
+              className="ui-button ui-button-secondary lg:hidden"
               onClick={() => setIsMobileFiltersOpen(current => !current)}
               aria-controls="mobile-filters"
               aria-expanded={isMobileFiltersOpen}
             >
               <SlidersHorizontal className="h-4 w-4 text-brand-accent" />
               Filtros
-              {activeFilterCount > 0 && <span className="rounded-full bg-brand-accent px-1.5 py-0.5 text-[10px] font-bold text-black">{activeFilterCount}</span>}
+              {(activeTab === 'nucleoTri' ? nucleoTriFilterCount : activeFilterCount) > 0 && <span className="rounded-full bg-brand-accent px-1.5 py-0.5 text-[10px] font-bold text-black">{activeTab === 'nucleoTri' ? nucleoTriFilterCount : activeFilterCount}</span>}
             </button>
           </div>
+
+          {isMobileFiltersOpen && activeTab === 'nucleoTri' && (
+            <aside id="mobile-filters" className="max-h-[55vh] shrink-0 space-y-3 overflow-y-auto border-b border-brand-border bg-brand-card p-4 lg:hidden" aria-label="Filtros Núcleo TRI">
+              <div className="flex justify-between"><strong className="text-xs">Filtros Núcleo TRI</strong><button type="button" className="text-xs text-brand-accent" onClick={() => { setNucleoTriOpFilter(''); setNucleoTriDateStart(''); setNucleoTriDateEnd(''); setNucleoTriOnlyMultipleDates(false); }}>Limpar</button></div>
+              <label className="flex flex-col gap-1 text-xs text-brand-muted">Buscar OP<input value={nucleoTriOpFilter} onChange={e => setNucleoTriOpFilter(e.target.value)} placeholder="Digite a OP" className="rounded-lg border border-brand-border bg-brand-panel px-3 py-2 text-white" /></label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1 text-xs text-brand-muted">De<input type="date" value={nucleoTriDateStart} onChange={e => setNucleoTriDateStart(e.target.value)} className="min-w-0 rounded-lg border border-brand-border bg-brand-panel px-2 py-2 text-white" /></label>
+                <label className="flex flex-col gap-1 text-xs text-brand-muted">Até<input type="date" value={nucleoTriDateEnd} onChange={e => setNucleoTriDateEnd(e.target.value)} className="min-w-0 rounded-lg border border-brand-border bg-brand-panel px-2 py-2 text-white" /></label>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-white"><input type="checkbox" checked={nucleoTriOnlyMultipleDates} onChange={e => setNucleoTriOnlyMultipleDates(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" />OPs em mais de um dia</label>
+            </aside>
+          )}
 
           {isMobileFiltersOpen && activeTab !== 'nucleoTri' && (
             <aside id="mobile-filters" className="max-h-[55vh] shrink-0 overflow-y-auto border-b border-brand-border bg-brand-card p-4 lg:hidden">
@@ -1626,6 +1731,22 @@ const rowVisualInfo = useMemo(() => {
             </aside>
           )}
 
+          {activeTab === 'nucleoTri' && (
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-brand-border px-3 py-2 sm:px-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Agenda de produção · Núcleo TRI</p>
+                <p className="mt-1 text-xs text-brand-soft">{filteredNucleoTri.length} registro(s) exibido(s) de {nucleoTriEntries.length}{nucleoTriFilterCount > 0 && ` / ${nucleoTriFilterCount} filtro(s) ativo(s)`}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" className={`ui-button ${nucleoTriSortConfig.key === 'opDate' ? 'ui-button-primary' : 'ui-button-secondary'}`}
+                  onClick={() => setNucleoTriSortConfig({ key: 'opDate', direction: 'asc' })}
+                  title="Agrupar os registros da mesma OP e ordenar suas datas do dia mais antigo ao mais recente, sem alterar o Excel">
+                  <ArrowUpDown className={`h-4 w-4 ${nucleoTriSortConfig.key === 'opDate' ? '' : 'text-brand-accent'}`} /> Ordem OP/Data
+                </button>
+                <span className="rounded-lg border border-brand-border/70 bg-brand-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-brand-muted">{nucleoTriDateStart || nucleoTriDateEnd ? `${nucleoTriDateStart ? formatToBRLDate(nucleoTriDateStart) : 'Início'} até ${nucleoTriDateEnd ? formatToBRLDate(nucleoTriDateEnd) : 'Fim'}` : 'Todas as datas'}</span>
+              </div>
+            </div>
+          )}
           {activeTab !== 'nucleoTri' && <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-brand-border px-3 py-2 sm:px-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Agenda de produção</p>
@@ -1680,50 +1801,62 @@ const rowVisualInfo = useMemo(() => {
                     {nucleoTriEntries.length > 0 && <button type="button" className="ui-button ui-button-secondary" onClick={() => { if (window.confirm('Excluir somente a programação importada de Núcleo TRI?')) { setNucleoTriEntries([]); setNucleoTriSource(''); setNucleoTriIgnored(0); } }}>Limpar</button>}
                   </div>
                 </div>
-                <div className="flex flex-wrap items-end gap-3 border-b border-brand-border bg-brand-panel/50 px-4 py-3">
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-brand-muted">Filtrar OP
-                    <input value={nucleoTriOpFilter} onChange={e => setNucleoTriOpFilter(e.target.value)} placeholder="Buscar OP" className="min-w-32 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs text-white outline-none focus:border-brand-accent" />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-brand-muted">Data inicial
-                    <input type="date" value={nucleoTriDateStart} onChange={e => setNucleoTriDateStart(e.target.value)} className="rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs text-white outline-none focus:border-brand-accent" />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-brand-muted">Data final
-                    <input type="date" value={nucleoTriDateEnd} onChange={e => setNucleoTriDateEnd(e.target.value)} className="rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs text-white outline-none focus:border-brand-accent" />
-                  </label>
-                  <span className="pb-2 text-[11px] text-brand-soft">{filteredNucleoTri.length} de {nucleoTriEntries.length} registro(s)</span>
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto">
+                <div className="min-h-0 flex-1 overflow-hidden p-3 sm:p-4">
                   {nucleoTriEntries.length === 0 ? (
                     <EmptyState icon={FileSpreadsheet} title="Nenhuma programação Núcleo TRI importada" description="Importe o Excel .xls ou .xlsx com o cabeçalho na linha 3, coluna OP e datas nas demais colunas." />
                   ) : filteredNucleoTri.length === 0 ? (
                     <EmptyState icon={Inbox} title="Nenhum resultado" description="Ajuste o filtro de OP ou o período selecionado." />
                   ) : (
-                    <table className="w-full min-w-[690px] border-collapse">
-                      <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
-                        <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
-                          <th className="px-4 py-3 font-bold">OP</th><th className="px-4 py-3 font-bold">Data Programada</th><th className="px-4 py-3 font-bold">Quantidade</th><th className="px-4 py-3 font-bold">Modelo</th><th className="px-4 py-3 font-bold">Cliente</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredNucleoTri.map(entry => {
-                          const rowKey = `NUCLEO_TRI|${entry.op}|${entry.data}`;
-                          const formattedDate = formatToBRLDate(entry.data);
-                          return (
-                            <tr key={rowKey} className={`border-b border-brand-border/70 transition-colors hover:bg-brand-surface/65 ${copiedRowKey === rowKey ? 'bg-brand-accent/10' : ''}`}>
-                              <td className="px-4 py-2 font-mono text-sm font-bold text-brand-accent">
-                                <span className="inline-flex items-center gap-2">{entry.op}<button type="button" className="ui-icon-button h-8 w-8" onClick={() => copyValue(entry.op, 'OP', rowKey)} title="Copiar OP" aria-label={`Copiar OP ${entry.op}`}>{copiedValue === `OP:${entry.op}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</button></span>
-                              </td>
-                              <td className="px-4 py-2 text-sm text-white">
-                                <span className="inline-flex items-center gap-2"><span className="rounded-lg border border-brand-accent/25 bg-brand-accent/10 px-3 py-1.5 font-mono font-bold">{formattedDate}</span><button type="button" className="ui-icon-button h-8 w-8" onClick={() => copyValue(formattedDate, 'DATA', rowKey)} title="Copiar data" aria-label={`Copiar data ${formattedDate}`}>{copiedValue === `DATA:${formattedDate}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</button></span>
-                              </td>
-                              <td className="px-4 py-2 font-mono text-sm font-semibold text-white">{entry.quantidade}</td>
-                              <td className="px-4 py-2 text-xs text-brand-soft">{entry.modelo || '-'}</td>
-                              <td className="px-4 py-2 text-xs text-brand-soft">{entry.cliente || '-'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                    <div className="panel-shadow h-full overflow-auto rounded-2xl border border-brand-border bg-brand-card/60">
+                      <table className="programacao-table border-collapse">
+                        <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                          <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
+                            {renderNucleoTriHeader('OP', 'op', 'w-[19%]')}
+                            {renderNucleoTriHeader('Data Programada', 'data', 'w-[24%]')}
+                            {renderNucleoTriHeader('QTD', 'quantidade', 'w-[11%]')}
+                            {renderNucleoTriHeader('Modelo', 'modelo', 'w-[22%]')}
+                            {renderNucleoTriHeader('Cliente', 'cliente', 'w-[24%]')}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredNucleoTri.map((entry, index) => {
+                            const rowKey = `NUCLEO_TRI|${entry.op}|${entry.data}`;
+                            const formattedDate = formatToBRLDate(entry.data);
+                            const distinctDates = nucleoTriDatesByOp.get(entry.op)?.size ?? 0;
+                            const isOpDateSort = nucleoTriSortConfig.key === 'opDate';
+                            const { isFirstInOpGroup, toneClass } = nucleoTriGroupStyles[index];
+                            const rowBg = isOpDateSort ? toneClass : index % 2 === 0 ? 'bg-brand-card/40' : 'bg-brand-panel/65';
+                            return (
+                              <tr key={rowKey} className={`border-b border-brand-border/70 border-l-[3px] border-r-[3px] transition-colors ${copiedRowKey === rowKey
+                                ? 'border-l-brand-accent border-r-brand-accent bg-brand-accent/12 shadow-[inset_0_0_0_1px_rgba(0,238,118,0.28)]'
+                                : `${rowBg} ${isOpDateSort && isFirstInOpGroup ? 'border-l-brand-accent' : 'border-l-transparent'} border-r-transparent hover:border-l-brand-accent hover:bg-brand-surface/75`
+                              }`}>
+                                <td>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-sm font-bold text-brand-accent">{entry.op}</span>
+                                    {distinctDates > 1 && <span className="rounded-full border border-brand-border bg-brand-surface px-2 py-0.5 text-[10px] font-bold text-brand-soft" title={`OP programada em ${distinctDates} datas distintas`}>{distinctDates}x</span>}
+                                    <button type="button" className="ui-icon-button h-8 w-8" onClick={() => copyValue(entry.op, 'OP', rowKey)} title="Copiar OP" aria-label={`Copiar OP ${entry.op}`}>
+                                      {copiedValue === `OP:${entry.op}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                    </button>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="flex items-center gap-2">
+                                    <span className="rounded-lg border border-brand-accent/25 bg-brand-accent/10 px-3 py-1.5 font-mono text-sm font-bold text-white">{formattedDate}</span>
+                                    <button type="button" className="ui-icon-button h-8 w-8" onClick={() => copyValue(formattedDate, 'DATA', rowKey)} title="Copiar Data" aria-label={`Copiar data ${formattedDate}`}>
+                                      {copiedValue === `DATA:${formattedDate}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                    </button>
+                                  </div>
+                                </td>
+                                <td><span className="font-mono text-sm font-bold text-white">{entry.quantidade}</span></td>
+                                <td><span className="text-xs font-medium text-brand-soft">{entry.modelo || '-'}</span></td>
+                                <td><span className="text-xs font-medium text-brand-soft">{entry.cliente || '-'}</span></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>
