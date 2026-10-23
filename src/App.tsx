@@ -11,6 +11,7 @@ import {
   shouldIncludeProductionStep 
 } from './lib/productionLogic';
 import { formatToBRLDate } from './lib/utils';
+import { NucleoTriEntry, parseNucleoTriWorkbook } from './lib/nucleoTri';
 import { CalendarModal } from './components/CalendarModal';
 import { FilterBar } from './components/FilterBar';
 
@@ -180,6 +181,8 @@ const STORAGE_KEYS = {
   showOnlyErrors: 'itam_prog_show_only_errors_v1',
   showOnlyPartial: 'itam_prog_show_only_partial_v1',
   optionalStepsConfig: 'itam_prog_optional_steps_config_v1',
+  nucleoTriEntries: 'itam_prog_nucleo_tri_entries_v1',
+  nucleoTriSource: 'itam_prog_nucleo_tri_source_v1',
 };
 
 const readStorage = <T,>(key: string, fallback: T): T => {
@@ -252,7 +255,13 @@ export default function App() {
   const [testMfDate, setTestMfDate] = useState('');
   const [testSteps, setTestSteps] = useState<OPStep[]>([]);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'programacao' | 'dashboard' | 'validarSerie'>('programacao');
+  const [activeTab, setActiveTab] = useState<'programacao' | 'dashboard' | 'validarSerie' | 'nucleoTri'>('programacao');
+  const [nucleoTriEntries, setNucleoTriEntries] = useState<NucleoTriEntry[]>(() => readStorage(STORAGE_KEYS.nucleoTriEntries, []));
+  const [nucleoTriSource, setNucleoTriSource] = useState<string>(() => readStorage(STORAGE_KEYS.nucleoTriSource, ''));
+  const [nucleoTriIgnored, setNucleoTriIgnored] = useState(0);
+  const [nucleoTriOpFilter, setNucleoTriOpFilter] = useState('');
+  const [nucleoTriDateStart, setNucleoTriDateStart] = useState('');
+  const [nucleoTriDateEnd, setNucleoTriDateEnd] = useState('');
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   // Somente a última linha copiada fica destacada.
   // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
@@ -272,6 +281,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const validationFileInputRef = useRef<HTMLInputElement>(null);
   const seriesFileInputRef = useRef<HTMLInputElement>(null);
+  const nucleoTriFileInputRef = useRef<HTMLInputElement>(null);
 
   const [filters, setFilters] = useState({
     dateStart: '',
@@ -289,6 +299,14 @@ export default function App() {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.optionalStepsConfig, optionalStepsConfig);
   }, [optionalStepsConfig]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.nucleoTriEntries, nucleoTriEntries);
+  }, [nucleoTriEntries]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.nucleoTriSource, nucleoTriSource);
+  }, [nucleoTriSource]);
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.rawOPs, rawOPs);
@@ -1016,6 +1034,32 @@ export default function App() {
 
   const openValidationModal = () => { setIsValidationModalOpen(true); setErrorInfo(null); };
 
+  // Importação independente da programação calculada / validação Sankhya.
+  const handleNucleoTriUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorInfo(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const imported = parseNucleoTriWorkbook(workbook);
+      setNucleoTriEntries(imported.entries); // Nova importação substitui apenas a aba Núcleo TRI.
+      setNucleoTriSource(`${file.name} • ${imported.sheetName}`);
+      setNucleoTriIgnored(imported.ignoredWithoutOp);
+    } catch (error) {
+      console.error(error);
+      setErrorInfo(error instanceof Error ? error.message : 'Não foi possível importar a programação Núcleo TRI.');
+    } finally {
+      if (nucleoTriFileInputRef.current) nucleoTriFileInputRef.current.value = '';
+    }
+  };
+
+  const filteredNucleoTri = useMemo(() => nucleoTriEntries.filter(entry =>
+    (!nucleoTriOpFilter || entry.op.includes(nucleoTriOpFilter.trim())) &&
+    (!nucleoTriDateStart || entry.data >= nucleoTriDateStart) &&
+    (!nucleoTriDateEnd || entry.data <= nucleoTriDateEnd)
+  ), [nucleoTriEntries, nucleoTriOpFilter, nucleoTriDateStart, nucleoTriDateEnd]);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1520,20 +1564,31 @@ const rowVisualInfo = useMemo(() => {
       </header>
 
       <div className="grid shrink-0 grid-cols-2 gap-px border-b border-brand-border bg-brand-border lg:grid-cols-4">
-        <StatCard label="Total de OPs" value={totalOpsUnique || '-'} accent />
-        <StatCard label="Etapas Programadas" value={displayedSteps.length || '-'} />
-        <StatCard label="Setores Ativos" value={totalSectors} />
-        <StatCard label="Datas do Ciclo" value={totalDates || '-'} />
+        {activeTab === 'nucleoTri' ? (
+          <>
+            <StatCard label="OPs Núcleo TRI" value={new Set(nucleoTriEntries.map(row => row.op)).size || '-'} accent />
+            <StatCard label="Datas Programadas" value={new Set(nucleoTriEntries.map(row => row.data)).size || '-'} />
+            <StatCard label="Registros" value={nucleoTriEntries.length || '-'} />
+            <StatCard label="Quantidade Total" value={nucleoTriEntries.reduce((total, entry) => total + entry.quantidade, 0)} />
+          </>
+        ) : (
+          <>
+            <StatCard label="Total de OPs" value={totalOpsUnique || '-'} accent />
+            <StatCard label="Etapas Programadas" value={displayedSteps.length || '-'} />
+            <StatCard label="Setores Ativos" value={totalSectors} />
+            <StatCard label="Datas do Ciclo" value={totalDates || '-'} />
+          </>
+        )}
       </div>
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="hidden w-[224px] shrink-0 flex-col overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-3 lg:flex">
+        {activeTab !== 'nucleoTri' && <aside className="hidden w-[224px] shrink-0 flex-col overflow-y-auto border-r border-brand-border bg-brand-panel/45 p-3 lg:flex">
           <FilterBar 
             filters={filters} 
             setFilters={setFilters} 
             sectors={sectorFilterOptions} 
           />
-        </aside>
+        </aside>}
 
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-border bg-brand-panel/55 px-3 py-2 sm:px-4">
@@ -1547,11 +1602,14 @@ const rowVisualInfo = useMemo(() => {
               <button type="button" role="tab" aria-selected={activeTab === 'validarSerie'} onClick={() => setActiveTab('validarSerie')} className={`tab-button flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeTab === 'validarSerie' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
                 <FileCheck2 className="h-4 w-4" /> Validar Série
               </button>
+              <button type="button" role="tab" aria-selected={activeTab === 'nucleoTri'} onClick={() => setActiveTab('nucleoTri')} className={`tab-button flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeTab === 'nucleoTri' ? 'bg-brand-accent text-black' : 'text-brand-soft hover:bg-brand-surface hover:text-white'}`}>
+                <Factory className="h-4 w-4" /> Núcleo TRI
+              </button>
             </div>
 
             <button
               type="button"
-              className="ui-button ui-button-secondary lg:hidden"
+              className={`ui-button ui-button-secondary lg:hidden ${activeTab === 'nucleoTri' ? 'hidden' : ''}`}
               onClick={() => setIsMobileFiltersOpen(current => !current)}
               aria-controls="mobile-filters"
               aria-expanded={isMobileFiltersOpen}
@@ -1562,13 +1620,13 @@ const rowVisualInfo = useMemo(() => {
             </button>
           </div>
 
-          {isMobileFiltersOpen && (
+          {isMobileFiltersOpen && activeTab !== 'nucleoTri' && (
             <aside id="mobile-filters" className="max-h-[55vh] shrink-0 overflow-y-auto border-b border-brand-border bg-brand-card p-4 lg:hidden">
               <FilterBar filters={filters} setFilters={setFilters} sectors={sectorFilterOptions} />
             </aside>
           )}
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-brand-border px-3 py-2 sm:px-4">
+          {activeTab !== 'nucleoTri' && <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-brand-border px-3 py-2 sm:px-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Agenda de produção</p>
               <p className="mt-1 text-xs text-brand-soft">
@@ -1600,11 +1658,77 @@ const rowVisualInfo = useMemo(() => {
               </button>
               <span className="rounded-lg border border-brand-border/70 bg-brand-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-brand-muted">{filters.dateStart || filters.dateEnd ? `${filters.dateStart ? formatToBRLDate(filters.dateStart) : 'Início'} até ${filters.dateEnd ? formatToBRLDate(filters.dateEnd) : 'Fim'}` : 'Todas as datas'}</span>
             </div>
-          </div>
+          </div>}
 
           <div className="min-h-0 flex-1 overflow-hidden">
 
-            {activeTab === 'validarSerie' ? (
+            {activeTab === 'nucleoTri' ? (
+              <div className="flex h-full flex-col overflow-hidden">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-brand-border bg-brand-panel/35 p-4 sm:p-5">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-brand-muted">Programação independente</p>
+                    <h2 className="mt-1 text-base font-bold text-white">Núcleo TRI</h2>
+                    <p className="mt-1 max-w-2xl text-xs leading-relaxed text-brand-soft">As datas são lidas diretamente do cabeçalho (linha 3) da aba Núcleo Trifásico. Somente células com quantidade positiva e OP preenchida são programadas. Não há antecipação nem ajuste para dias úteis.</p>
+                    {nucleoTriSource && <p className="mt-2 text-[11px] font-semibold text-brand-accent">Arquivo: {nucleoTriSource}</p>}
+                    {nucleoTriIgnored > 0 && <p className="mt-1 text-[11px] text-amber-300">{nucleoTriIgnored} linha(s) com quantidade foram ignoradas por não possuírem OP. Nenhuma OP foi presumida.</p>}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <input type="file" accept=".xls,.xlsx" className="hidden" ref={nucleoTriFileInputRef} onChange={handleNucleoTriUpload} />
+                    <button type="button" className="ui-button ui-button-primary" onClick={() => nucleoTriFileInputRef.current?.click()}>
+                      <Upload className="h-4 w-4" /> Importar Núcleo TRI
+                    </button>
+                    {nucleoTriEntries.length > 0 && <button type="button" className="ui-button ui-button-secondary" onClick={() => { if (window.confirm('Excluir somente a programação importada de Núcleo TRI?')) { setNucleoTriEntries([]); setNucleoTriSource(''); setNucleoTriIgnored(0); } }}>Limpar</button>}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-end gap-3 border-b border-brand-border bg-brand-panel/50 px-4 py-3">
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-brand-muted">Filtrar OP
+                    <input value={nucleoTriOpFilter} onChange={e => setNucleoTriOpFilter(e.target.value)} placeholder="Buscar OP" className="min-w-32 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs text-white outline-none focus:border-brand-accent" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-brand-muted">Data inicial
+                    <input type="date" value={nucleoTriDateStart} onChange={e => setNucleoTriDateStart(e.target.value)} className="rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs text-white outline-none focus:border-brand-accent" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-brand-muted">Data final
+                    <input type="date" value={nucleoTriDateEnd} onChange={e => setNucleoTriDateEnd(e.target.value)} className="rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs text-white outline-none focus:border-brand-accent" />
+                  </label>
+                  <span className="pb-2 text-[11px] text-brand-soft">{filteredNucleoTri.length} de {nucleoTriEntries.length} registro(s)</span>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {nucleoTriEntries.length === 0 ? (
+                    <EmptyState icon={FileSpreadsheet} title="Nenhuma programação Núcleo TRI importada" description="Importe o Excel .xls ou .xlsx com o cabeçalho na linha 3, coluna OP e datas nas demais colunas." />
+                  ) : filteredNucleoTri.length === 0 ? (
+                    <EmptyState icon={Inbox} title="Nenhum resultado" description="Ajuste o filtro de OP ou o período selecionado." />
+                  ) : (
+                    <table className="w-full min-w-[690px] border-collapse">
+                      <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                        <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
+                          <th className="px-4 py-3 font-bold">OP</th><th className="px-4 py-3 font-bold">Data Programada</th><th className="px-4 py-3 font-bold">Quantidade</th><th className="px-4 py-3 font-bold">Modelo</th><th className="px-4 py-3 font-bold">Cliente</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredNucleoTri.map(entry => {
+                          const rowKey = `NUCLEO_TRI|${entry.op}|${entry.data}`;
+                          const formattedDate = formatToBRLDate(entry.data);
+                          return (
+                            <tr key={rowKey} className={`border-b border-brand-border/70 transition-colors hover:bg-brand-surface/65 ${copiedRowKey === rowKey ? 'bg-brand-accent/10' : ''}`}>
+                              <td className="px-4 py-2 font-mono text-sm font-bold text-brand-accent">
+                                <span className="inline-flex items-center gap-2">{entry.op}<button type="button" className="ui-icon-button h-8 w-8" onClick={() => copyValue(entry.op, 'OP', rowKey)} title="Copiar OP" aria-label={`Copiar OP ${entry.op}`}>{copiedValue === `OP:${entry.op}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</button></span>
+                              </td>
+                              <td className="px-4 py-2 text-sm text-white">
+                                <span className="inline-flex items-center gap-2"><span className="rounded-lg border border-brand-accent/25 bg-brand-accent/10 px-3 py-1.5 font-mono font-bold">{formattedDate}</span><button type="button" className="ui-icon-button h-8 w-8" onClick={() => copyValue(formattedDate, 'DATA', rowKey)} title="Copiar data" aria-label={`Copiar data ${formattedDate}`}>{copiedValue === `DATA:${formattedDate}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</button></span>
+                              </td>
+                              <td className="px-4 py-2 font-mono text-sm font-semibold text-white">{entry.quantidade}</td>
+                              <td className="px-4 py-2 text-xs text-brand-soft">{entry.modelo || '-'}</td>
+                              <td className="px-4 py-2 text-xs text-brand-soft">{entry.cliente || '-'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            ) : activeTab === 'validarSerie' ? (
+
               <div className="flex h-full flex-col overflow-hidden">
                 <div className="flex shrink-0 flex-col gap-4 border-b border-brand-border bg-brand-panel/35 p-4 sm:p-5">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">

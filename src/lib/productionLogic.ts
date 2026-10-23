@@ -34,7 +34,7 @@ export const PRODUCTION_STEPS = [
   { name: 'Estamparia', offsetDays: 4 },
   { name: 'Pintura Ferragem', offsetDays: 5 },
   { name: 'Bobinagem BT', offsetDays: 5 },
-  { name: 'Corte Núcleo', offsetDays: 5 },
+  { name: 'Corte Núcleo', offsetDays: 4 },
   { name: 'Ferragem', offsetDays: 7 },
   { name: 'Isolante', offsetDays: 7 },
 ];
@@ -109,13 +109,8 @@ export function generateStepsForOP(rawOP: RawOP, config: ValidDaysConfig): OPSte
   const mfDate = parseISO(rawOP.data_mf);
   const stepsForLinha = getProductionStepsForLinha(rawOP.linha);
 
-  const normalizedLinha = normalizeLinha(rawOP.linha);
-
   return stepsForLinha.map((stepConfig) => {
-    const offsetDays = stepConfig.name === 'Corte Núcleo' && (normalizedLinha === 'MON' || normalizedLinha === 'BIF')
-      ? 3
-      : stepConfig.offsetDays;
-    const calcDate = subtractValidDays(mfDate, offsetDays, config);
+    const calcDate = subtractValidDays(mfDate, stepConfig.offsetDays, config);
     const dateStr = format(calcDate, 'yyyy-MM-dd');
     
     return {
