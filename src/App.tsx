@@ -12,6 +12,7 @@ import {
 } from './lib/productionLogic';
 import { formatToBRLDate } from './lib/utils';
 import { NucleoTriEntry, parseNucleoTriWorkbook } from './lib/nucleoTri';
+import { NucleoTriSector, NucleoTriSankhyaRow, NucleoTriValidationResult, validateNucleoTri } from './lib/nucleoTriValidation';
 import { CalendarModal } from './components/CalendarModal';
 import { FilterBar } from './components/FilterBar';
 
@@ -27,7 +28,7 @@ type SortKey = 'op' | 'usedDate' | 'qtd_mf' | 'stepName' | 'linha' | 'status' | 
 type SortDirection = 'asc' | 'desc';
 type SortConfig = { key: SortKey; direction: SortDirection } | null;
 // Ordenação específica de Núcleo TRI: não afeta a ordenação da Programação principal.
-type NucleoTriSortKey = 'op' | 'data' | 'quantidade' | 'modelo' | 'cliente' | 'opDate';
+type NucleoTriSortKey = 'op' | 'data' | 'quantidade' | 'modelo' | 'cliente' | 'status' | 'opDate';
 type NucleoTriSortConfig = { key: NucleoTriSortKey; direction: SortDirection };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 const PARTIAL_STATUS: ValidationStatus = 'Programado parcial';
@@ -186,6 +187,8 @@ const STORAGE_KEYS = {
   optionalStepsConfig: 'itam_prog_optional_steps_config_v1',
   nucleoTriEntries: 'itam_prog_nucleo_tri_entries_v1',
   nucleoTriSource: 'itam_prog_nucleo_tri_source_v1',
+  nucleoTriSankhyaRows: 'itam_prog_nucleo_tri_sankhya_rows_v1',
+  nucleoTriSector: 'itam_prog_nucleo_tri_sankhya_sector_v1',
 };
 
 const readStorage = <T,>(key: string, fallback: T): T => {
@@ -267,6 +270,11 @@ export default function App() {
   const [nucleoTriDateEnd, setNucleoTriDateEnd] = useState('');
   const [nucleoTriOnlyMultipleDates, setNucleoTriOnlyMultipleDates] = useState(false);
   const [nucleoTriSortConfig, setNucleoTriSortConfig] = useState<NucleoTriSortConfig>({ key: 'data', direction: 'asc' });
+  const [nucleoTriSankhyaRows, setNucleoTriSankhyaRows] = useState<NucleoTriSankhyaRow[]>(() => readStorage(STORAGE_KEYS.nucleoTriSankhyaRows, []));
+  const [nucleoTriSector, setNucleoTriSector] = useState<NucleoTriSector>(() => readStorage(STORAGE_KEYS.nucleoTriSector, 'Corte Núcleo'));
+  const [isNucleoTriValidationOpen, setIsNucleoTriValidationOpen] = useState(false);
+  const [nucleoTriOnlyErrors, setNucleoTriOnlyErrors] = useState(false);
+  const [nucleoTriOnlyPartial, setNucleoTriOnlyPartial] = useState(false);
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   // Somente a última linha copiada fica destacada.
   // Ao copiar outra OP ou Data, a linha anterior desmarca automaticamente.
@@ -287,6 +295,7 @@ export default function App() {
   const validationFileInputRef = useRef<HTMLInputElement>(null);
   const seriesFileInputRef = useRef<HTMLInputElement>(null);
   const nucleoTriFileInputRef = useRef<HTMLInputElement>(null);
+  const nucleoTriValidationFileInputRef = useRef<HTMLInputElement>(null);
 
   const [filters, setFilters] = useState({
     dateStart: '',
@@ -312,6 +321,14 @@ export default function App() {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.nucleoTriSource, nucleoTriSource);
   }, [nucleoTriSource]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.nucleoTriSankhyaRows, nucleoTriSankhyaRows);
+  }, [nucleoTriSankhyaRows]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.nucleoTriSector, nucleoTriSector);
+  }, [nucleoTriSector]);
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.rawOPs, rawOPs);
@@ -1037,7 +1054,11 @@ export default function App() {
     }
   };
 
-  const openValidationModal = () => { setIsValidationModalOpen(true); setErrorInfo(null); };
+  const openValidationModal = () => {
+    if (activeTab === 'nucleoTri') setIsNucleoTriValidationOpen(true);
+    else setIsValidationModalOpen(true);
+    setErrorInfo(null);
+  };
 
   // Importação independente da programação calculada / validação Sankhya.
   const handleNucleoTriUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1058,6 +1079,62 @@ export default function App() {
       if (nucleoTriFileInputRef.current) nucleoTriFileInputRef.current.value = '';
     }
   };
+
+
+  // Sankhya do Núcleo TRI: arquivo e resultados próprios, sem alterar a validação principal.
+  const handleNucleoTriValidationUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setErrorInfo(null);
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true, dateNF: 'dd/MM/yyyy' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '', raw: false, dateNF: 'dd/MM/yyyy' });
+      const opAliases = ['OP-Pai', 'OP Pai', 'OPPAI', 'OP Pai ', 'OP', 'Nro OP', 'NRO OP', 'Nro. OP'];
+      const dateAliases = ['Dt.Programada', 'Dt Programada', 'Data Programada', 'DATA PROGRAMADA', 'DT PROGRAMADA', 'Dia', 'Data'];
+      const sectorAliases = ['Descr.Atividade', 'Descr Atividade', 'Descricao Atividade', 'Descrição Atividade', 'Descrição (Atividade)', 'Descr. Atividade', 'Desc Atividade', 'Setor'];
+      const codeAliases = ['Atividade', 'Cod.Atividade', 'Cod Atividade', 'COD ATIVIDADE', 'Codigo Atividade', 'Cód. Atividade', 'Cód Atividade', 'Cod Sankhya', 'COD SANKHYA', 'Código Sankhya'];
+      const qtyAliases = ['Qtd.Programada', 'Qtd Programada', 'Quantidade Programada', 'QTD PROGRAMADA', 'Qtd', 'Quantidade'];
+      const linhaAliases = ['Linha Prod', 'Linha Produção', 'Linha Producao', 'Linha'];
+      const headerIndex = findHeaderRowIndex(rows, [opAliases, dateAliases, [...sectorAliases, ...codeAliases]]);
+      if (headerIndex < 0) throw new Error('Cabeçalho do Sankhya não encontrado. São necessárias as colunas OP-Pai, Dt.Programada, Atividade ou Descr.Atividade e Qtd.Programada.');
+      const headers = rows[headerIndex];
+      const parsed: NucleoTriSankhyaRow[] = rows.slice(headerIndex + 1).map(row => {
+        const sector = getCellFromRowArray(headers, row, sectorAliases);
+        const code = getCellFromRowArray(headers, row, codeAliases);
+        return {
+          op: normalizeOp(getCellFromRowArray(headers, row, opAliases)),
+          data: parseExcelDate(getCellFromRowArray(headers, row, dateAliases)) || '',
+          setor: normalizeSectorName(mapCodToSetor(code, sector)),
+          qtd: parseNumber(getCellFromRowArray(headers, row, qtyAliases)),
+          linha: String(getCellFromRowArray(headers, row, linhaAliases) ?? '').trim().toUpperCase(),
+        };
+      }).filter(row => row.op && row.data && row.setor);
+      if (!parsed.length) throw new Error('Nenhuma linha válida com OP, data e atividade encontrada no relatório do Sankhya.');
+      setNucleoTriSankhyaRows(parsed);
+    } catch (error) {
+      console.error(error);
+      setErrorInfo(error instanceof Error ? error.message : 'Não foi possível importar o relatório do Sankhya.');
+    } finally {
+      if (nucleoTriValidationFileInputRef.current) nucleoTriValidationFileInputRef.current.value = '';
+    }
+  };
+
+  const nucleoTriValidation = useMemo<NucleoTriValidationResult[]>(
+    () => validateNucleoTri(nucleoTriEntries, nucleoTriSankhyaRows, nucleoTriSector),
+    [nucleoTriEntries, nucleoTriSankhyaRows, nucleoTriSector]
+  );
+  const nucleoTriValidationByKey = useMemo(() => new Map(
+    nucleoTriValidation.filter(row => row.dataPainel).map(row => [`${row.op}|${row.dataPainel}`, row])
+  ), [nucleoTriValidation]);
+  const nucleoTriValidationCounts = useMemo(() => nucleoTriValidation.reduce((acc, row) => {
+    acc[row.status] = (acc[row.status] || 0) + 1;
+    return acc;
+  }, {} as Record<ValidationStatus, number>), [nucleoTriValidation]);
+  const visibleNucleoTriValidation = useMemo(() => nucleoTriValidation.filter(row => {
+    if (!nucleoTriOnlyErrors && !nucleoTriOnlyPartial) return true;
+    return (nucleoTriOnlyErrors && ERROR_STATUSES.includes(row.status)) || (nucleoTriOnlyPartial && row.status === PARTIAL_STATUS);
+  }), [nucleoTriValidation, nucleoTriOnlyErrors, nucleoTriOnlyPartial]);
 
   // Contagem de DIAS distintos no arquivo inteiro, independentemente dos filtros.
   // O selo 2x significa 2 datas diferentes, nunca 2 registros no mesmo dia.
@@ -1082,7 +1159,10 @@ export default function App() {
       (!nucleoTriOpFilter.trim() || entry.op.includes(nucleoTriOpFilter.trim())) &&
       (!nucleoTriDateStart || entry.data >= nucleoTriDateStart) &&
       (!nucleoTriDateEnd || entry.data <= nucleoTriDateEnd) &&
-      (!nucleoTriOnlyMultipleDates || (nucleoTriDatesByOp.get(entry.op)?.size ?? 0) > 1)
+      (!nucleoTriOnlyMultipleDates || (nucleoTriDatesByOp.get(entry.op)?.size ?? 0) > 1) &&
+      ((!nucleoTriOnlyErrors && !nucleoTriOnlyPartial) || nucleoTriSankhyaRows.length === 0 ||
+        (nucleoTriOnlyErrors && ERROR_STATUSES.includes(nucleoTriValidationByKey.get(`${entry.op}|${entry.data}`)?.status as ValidationStatus)) ||
+        (nucleoTriOnlyPartial && nucleoTriValidationByKey.get(`${entry.op}|${entry.data}`)?.status === PARTIAL_STATUS))
     );
     // A lista é copiada antes de ordenar para nunca alterar o conteúdo importado.
     return result.sort((a, b) => {
@@ -1094,10 +1174,11 @@ export default function App() {
         ? a.quantidade - b.quantidade
         : key === 'op' ? compareOp()
         : key === 'data' ? compareData()
+        : key === 'status' ? (nucleoTriValidationByKey.get(`${a.op}|${a.data}`)?.status || 'Sem validação').localeCompare(nucleoTriValidationByKey.get(`${b.op}|${b.data}`)?.status || 'Sem validação')
         : String(a[key]).localeCompare(String(b[key]), undefined, { numeric: true, sensitivity: 'base' });
       return cmp * (direction === 'asc' ? 1 : -1) || compareOp() || compareData();
     });
-  }, [nucleoTriEntries, nucleoTriOpFilter, nucleoTriDateStart, nucleoTriDateEnd, nucleoTriOnlyMultipleDates, nucleoTriDatesByOp, nucleoTriSortConfig]);
+  }, [nucleoTriEntries, nucleoTriOpFilter, nucleoTriDateStart, nucleoTriDateEnd, nucleoTriOnlyMultipleDates, nucleoTriDatesByOp, nucleoTriSortConfig, nucleoTriSankhyaRows.length, nucleoTriOnlyErrors, nucleoTriOnlyPartial, nucleoTriValidationByKey]);
 
   // Indica o início de cada grupo de OP e alterna seu fundo sem buscas quadráticas.
   const nucleoTriGroupStyles = useMemo(() => {
@@ -1738,6 +1819,12 @@ const rowVisualInfo = useMemo(() => {
                 <p className="mt-1 text-xs text-brand-soft">{filteredNucleoTri.length} registro(s) exibido(s) de {nucleoTriEntries.length}{nucleoTriFilterCount > 0 && ` / ${nucleoTriFilterCount} filtro(s) ativo(s)`}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-brand-soft" title="Mostrar só divergências da validação Núcleo TRI">
+                  <input type="checkbox" checked={nucleoTriOnlyErrors} onChange={e => setNucleoTriOnlyErrors(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" /> Exibir erros
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-card px-3 py-2 text-xs font-semibold text-brand-soft">
+                  <input type="checkbox" checked={nucleoTriOnlyPartial} onChange={e => setNucleoTriOnlyPartial(e.target.checked)} className="h-4 w-4 accent-[#00EE76]" /> Programado parcial
+                </label>
                 <button type="button" className={`ui-button ${nucleoTriSortConfig.key === 'opDate' ? 'ui-button-primary' : 'ui-button-secondary'}`}
                   onClick={() => setNucleoTriSortConfig({ key: 'opDate', direction: 'asc' })}
                   title="Agrupar os registros da mesma OP e ordenar suas datas do dia mais antigo ao mais recente, sem alterar o Excel">
@@ -1795,6 +1882,9 @@ const rowVisualInfo = useMemo(() => {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <input type="file" accept=".xls,.xlsx" className="hidden" ref={nucleoTriFileInputRef} onChange={handleNucleoTriUpload} />
+                    <button type="button" className="ui-button ui-button-secondary" onClick={() => { setIsNucleoTriValidationOpen(true); setErrorInfo(null); }}>
+                      <FileCheck2 className="h-4 w-4 text-brand-accent" /> Validar Núcleo TRI
+                    </button>
                     <button type="button" className="ui-button ui-button-primary" onClick={() => nucleoTriFileInputRef.current?.click()}>
                       <Upload className="h-4 w-4" /> Importar Núcleo TRI
                     </button>
@@ -1815,7 +1905,8 @@ const rowVisualInfo = useMemo(() => {
                             {renderNucleoTriHeader('Data Programada', 'data', 'w-[24%]')}
                             {renderNucleoTriHeader('QTD', 'quantidade', 'w-[11%]')}
                             {renderNucleoTriHeader('Modelo', 'modelo', 'w-[22%]')}
-                            {renderNucleoTriHeader('Cliente', 'cliente', 'w-[24%]')}
+                            {renderNucleoTriHeader('Cliente', 'cliente', 'w-[16%]')}
+                            {renderNucleoTriHeader('Status', 'status', 'w-[16%]')}
                           </tr>
                         </thead>
                         <tbody>
@@ -1823,6 +1914,7 @@ const rowVisualInfo = useMemo(() => {
                             const rowKey = `NUCLEO_TRI|${entry.op}|${entry.data}`;
                             const formattedDate = formatToBRLDate(entry.data);
                             const distinctDates = nucleoTriDatesByOp.get(entry.op)?.size ?? 0;
+                            const nucleoStatus = nucleoTriValidationByKey.get(`${entry.op}|${entry.data}`);
                             const isOpDateSort = nucleoTriSortConfig.key === 'opDate';
                             const { isFirstInOpGroup, toneClass } = nucleoTriGroupStyles[index];
                             const rowBg = isOpDateSort ? toneClass : index % 2 === 0 ? 'bg-brand-card/40' : 'bg-brand-panel/65';
@@ -1851,6 +1943,9 @@ const rowVisualInfo = useMemo(() => {
                                 <td><span className="font-mono text-sm font-bold text-white">{entry.quantidade}</span></td>
                                 <td><span className="text-xs font-medium text-brand-soft">{entry.modelo || '-'}</span></td>
                                 <td><span className="text-xs font-medium text-brand-soft">{entry.cliente || '-'}</span></td>
+                                <td>
+                                  {nucleoStatus ? <button type="button" title={nucleoStatus.observacao} onClick={() => setIsNucleoTriValidationOpen(true)}><StatusBadge status={nucleoStatus.status} /></button> : <StatusBadge status="Sem validação" />}
+                                </td>
                               </tr>
                             );
                           })}
@@ -2227,6 +2322,81 @@ const rowVisualInfo = useMemo(() => {
         onSave={setValidDaysConfig}
       />
       
+
+      {isNucleoTriValidationOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="nucleo-tri-validation-title" className="panel-shadow flex max-h-[92vh] w-full max-w-[1180px] flex-col overflow-hidden rounded-2xl border border-brand-border bg-brand-card">
+            <div className="flex items-start justify-between gap-4 border-b border-brand-border px-4 py-4 sm:px-6">
+              <div className="flex items-start gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent"><FileCheck2 className="h-5 w-5" /></span>
+                <div>
+                  <h2 id="nucleo-tri-validation-title" className="text-lg font-bold tracking-tight text-white">Validação Núcleo TRI</h2>
+                  <p className="mt-1 text-xs text-brand-muted">Conferência independente contra o Sankhya: OP + data exata + setor + quantidade. Nenhuma data do Excel é recalculada.</p>
+                </div>
+              </div>
+              <button type="button" className="ui-icon-button" aria-label="Fechar validação Núcleo TRI" onClick={() => setIsNucleoTriValidationOpen(false)}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="flex flex-col gap-3 border-b border-brand-border bg-brand-panel/35 p-4 sm:p-5">
+              <div className="flex flex-wrap gap-2">
+                {(['OK', 'Programado parcial', 'Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'] as ValidationStatus[]).map(status => (
+                  <span key={status}><StatusBadge status={status} count={nucleoTriValidationCounts[status] || 0} /></span>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-border/80 bg-brand-card p-3">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-brand-soft">
+                  <span>Atividade Sankhya para conferir</span>
+                  <select value={nucleoTriSector} onChange={e => setNucleoTriSector(e.target.value as NucleoTriSector)} className="ui-field text-white">
+                    <option value="Corte Núcleo">Corte Núcleo (2714 / 2471)</option>
+                    <option value="Montagem Núcleo">Montagem Núcleo (2716 / 2473)</option>
+                  </select>
+                </label>
+                <input type="file" accept=".xls,.xlsx" className="hidden" ref={nucleoTriValidationFileInputRef} onChange={handleNucleoTriValidationUpload} />
+                <button type="button" className="ui-button ui-button-primary" onClick={() => nucleoTriValidationFileInputRef.current?.click()}><Upload className="h-4 w-4" /> Importar relatório do Sankhya</button>
+                <span className="text-xs text-brand-muted">{nucleoTriSankhyaRows.length} linha(s) importada(s) · {nucleoTriSankhyaRows.filter(row => normalizeText(row.setor) === normalizeText(nucleoTriSector)).length} no setor selecionado</span>
+                {nucleoTriSankhyaRows.length > 0 && !nucleoTriSankhyaRows.some(row => normalizeText(row.setor) === normalizeText(nucleoTriSector)) && (
+                  <span className="w-full text-xs font-semibold text-amber-300">Atenção: nenhuma linha da atividade selecionada foi encontrada no relatório. Confirme o setor e a abrangência da exportação antes de interpretar os resultados.</span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-xs font-semibold text-brand-soft"><input type="checkbox" className="h-4 w-4 accent-[#00EE76]" checked={nucleoTriOnlyErrors} onChange={e => setNucleoTriOnlyErrors(e.target.checked)} /> Exibir erros</label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-brand-soft"><input type="checkbox" className="h-4 w-4 accent-[#00EE76]" checked={nucleoTriOnlyPartial} onChange={e => setNucleoTriOnlyPartial(e.target.checked)} /> Programado parcial</label>
+                <span className="text-[11px] text-brand-muted">Extras: somente OPs presentes no Excel de Núcleo TRI, no setor selecionado.</span>
+              </div>
+            </div>
+            <div className="min-h-[180px] flex-1 overflow-auto">
+              {nucleoTriEntries.length === 0 ? (
+                <EmptyState compact icon={FileSpreadsheet} title="Importe primeiro a programação Núcleo TRI" description="Carregue a programação na aba Núcleo TRI antes de conferir contra o Sankhya." />
+              ) : nucleoTriSankhyaRows.length === 0 ? (
+                <EmptyState compact icon={FileCheck2} title="Nenhuma validação executada" description="Importe o relatório do Sankhya para iniciar a conferência independente do Núcleo TRI." />
+              ) : visibleNucleoTriValidation.length === 0 ? (
+                <EmptyState compact icon={Check} title="Nenhum resultado neste filtro" description="Revise os filtros de erro e programação parcial." />
+              ) : (
+                <table className="min-w-[1050px] w-full border-collapse">
+                  <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
+                    <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
+                      <th className="p-3 px-4 font-bold">Status</th><th className="p-3 px-4 font-bold">OP</th><th className="p-3 px-4 font-bold">Data Núcleo TRI</th><th className="p-3 px-4 font-bold">Data Sankhya</th><th className="p-3 px-4 font-bold">Setor</th><th className="p-3 px-4 font-bold">QTD Núcleo TRI</th><th className="p-3 px-4 font-bold">QTD Sankhya</th><th className="p-3 px-4 font-bold">Observação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleNucleoTriValidation.map((result, index) => (
+                      <tr key={`${result.op}-${result.dataPainel || result.dataSistema}-${index}`} className="border-b border-brand-border/70 transition-colors hover:bg-brand-surface/60">
+                        <td className="p-3 px-4"><StatusBadge status={result.status} /></td>
+                        <td className="p-3 px-4 font-mono font-bold text-brand-accent">{result.op}</td>
+                        <td className="p-3 px-4 font-mono text-white">{result.dataPainel ? formatToBRLDate(result.dataPainel) : '-'}</td>
+                        <td className="p-3 px-4 font-mono text-white">{result.dataSistema ? formatToBRLDate(result.dataSistema) : '-'}</td>
+                        <td className="p-3 px-4 text-xs text-brand-soft">{result.setor}</td>
+                        <td className="p-3 px-4 font-mono text-white">{result.qtdPainel ?? '-'}</td>
+                        <td className="p-3 px-4 font-mono text-white">{result.qtdSistema ?? '-'}</td>
+                        <td className="p-3 px-4 text-xs text-brand-muted">{result.observacao}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isValidationModalOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-4">
