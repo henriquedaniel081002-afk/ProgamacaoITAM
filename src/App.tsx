@@ -33,6 +33,7 @@ type NucleoTriSortConfig = { key: NucleoTriSortKey; direction: SortDirection };
 const ERROR_STATUSES: ValidationStatus[] = ['Não programado', 'Data divergente', 'Quantidade divergente', 'Duplicado', 'Extra'];
 const PARTIAL_STATUS: ValidationStatus = 'Programado parcial';
 type DisplayStatus = ValidationStatus | 'Sem validação';
+type OpStatusImportFeedback = { kind: 'success' | 'error'; fileName: string; message: string };
 
 const STATUS_BADGE_CLASSES: Record<DisplayStatus, string> = {
   OK: 'border-brand-accent/30 bg-brand-accent/10 text-brand-accent',
@@ -250,8 +251,7 @@ export default function App() {
   );
 
   const [opStatuses, setOpStatuses] = useState<Record<string, string>>(() => readStorage(STORAGE_KEYS.opStatuses, {}));
-  const [opStatusSource, setOpStatusSource] = useState('');
-  const [opStatusMessage, setOpStatusMessage] = useState('');
+  const [opStatusImportFeedback, setOpStatusImportFeedback] = useState<OpStatusImportFeedback | null>(null);
   const [rawOPs, setRawOPs] = useState<RawOP[]>(() => readStorage(STORAGE_KEYS.rawOPs, []));
   const [calculatedSteps, setCalculatedSteps] = useState<OPStep[]>(() =>
     applyOptionalStepsConfig(
@@ -1225,7 +1225,7 @@ export default function App() {
     if (!file) return;
     event.target.value = '';
     setErrorInfo(null);
-    setOpStatusMessage('');
+    setOpStatusImportFeedback(null);
     try {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -1248,11 +1248,27 @@ export default function App() {
         validRows++;
       }
       if (validRows === 0) throw new Error('Nenhuma OP com status foi encontrada a partir da linha 4.');
+
+      // O sucesso só é informado depois da gravação. Falhas não substituem a relação anterior.
+      try {
+        window.localStorage.setItem(STORAGE_KEYS.opStatuses, JSON.stringify(imported));
+      } catch {
+        throw new Error('Não foi possível salvar os status no navegador. Confira o espaço ou as permissões de armazenamento.');
+      }
+
       setOpStatuses(imported);
-      setOpStatusSource(file.name);
-      setOpStatusMessage(`${Object.keys(imported).length} OP(s) com status importado(s). Relação anterior substituída.`);
+      const uniqueCount = Object.keys(imported).length;
+      setOpStatusImportFeedback({
+        kind: 'success',
+        fileName: file.name,
+        message: `${uniqueCount.toLocaleString('pt-BR')} ${uniqueCount === 1 ? 'OP importada e salva' : 'OPs importadas e salvas'} com sucesso. Os status anteriores foram substituídos.`,
+      });
     } catch (error) {
-      setErrorInfo(error instanceof Error ? error.message : 'Não foi possível importar os status das OPs.');
+      setOpStatusImportFeedback({
+        kind: 'error',
+        fileName: file.name,
+        message: `${error instanceof Error ? error.message : 'Não foi possível importar os status das OPs.'} A relação anterior foi preservada.`,
+      });
     }
   };
 
@@ -1723,7 +1739,7 @@ const rowVisualInfo = useMemo(() => {
             <Upload className="h-4 w-4 text-brand-accent" /> Importar Excel
           </button>
           <input type="file" accept=".xlsx,.xls" className="hidden" ref={opStatusFileInputRef} onChange={handleOpStatusUpload} />
-          <button type="button" onClick={() => opStatusFileInputRef.current?.click()} className="ui-button ui-button-secondary" title={opStatusMessage || opStatusSource || "Importar relatório de status das OPs"}>
+          <button type="button" onClick={() => opStatusFileInputRef.current?.click()} className="ui-button ui-button-secondary" title="Importar relatório de status das OPs">
             <FileSpreadsheet className="h-4 w-4 text-brand-accent" /> Status das OPs
           </button>
           <button 
@@ -1764,6 +1780,35 @@ const rowVisualInfo = useMemo(() => {
         </div>
         </div>
       </header>
+
+      {opStatusImportFeedback && (
+        <div
+          role={opStatusImportFeedback.kind === 'error' ? 'alert' : 'status'}
+          className={`flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-sm ${
+            opStatusImportFeedback.kind === 'success'
+              ? 'border-brand-accent/30 bg-brand-accent/10 text-green-200'
+              : 'border-red-400/30 bg-red-400/10 text-red-200'
+          }`}
+        >
+          <div className="flex min-w-0 items-start gap-2.5">
+            {opStatusImportFeedback.kind === 'success'
+              ? <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              : <X className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+            <div className="min-w-0">
+              <p className="font-bold">{opStatusImportFeedback.kind === 'success' ? 'Importação de status concluída' : 'Importação de status não concluída'}</p>
+              <p className="mt-0.5 break-words text-xs">{opStatusImportFeedback.fileName} — {opStatusImportFeedback.message}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpStatusImportFeedback(null)}
+            className="ui-icon-button h-7 w-7 shrink-0"
+            aria-label="Fechar resultado da importação"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       <div className="grid shrink-0 grid-cols-2 gap-px border-b border-brand-border bg-brand-border lg:grid-cols-4">
         {activeTab === 'nucleoTri' ? (
@@ -2221,16 +2266,26 @@ const rowVisualInfo = useMemo(() => {
             ) : (
               <div className="h-full p-3 sm:p-4">
                 <div className="panel-shadow h-full overflow-auto rounded-2xl border border-brand-border bg-brand-card/60">
-              <table className="programacao-table border-collapse">
+              <table className="programacao-table border-collapse" style={{ minWidth: '1400px' }}>
+                {/* Colunas independentes: a soma das larguras é 100%, evitando a sobreposição dos dois status. */}
+                <colgroup>
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '18%' }} />
+                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '14%' }} />
+                </colgroup>
                 <thead className="sticky top-0 z-10 border-b border-brand-border bg-brand-panel">
                   <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-brand-muted">
-                    {renderSortableHeader('OP', 'op', 'w-[18%]')}
-                    {renderSortableHeader('Data Programada', 'usedDate', 'w-[18%]')}
-                    {renderSortableHeader('QTD', 'qtd_mf', 'w-[8%]')}
-                    {renderSortableHeader('Setor', 'stepName', 'w-[31%]')}
-                    {renderSortableHeader('Linha', 'linha', 'w-[10%]')}
+                    {renderSortableHeader('OP', 'op')}
+                    {renderSortableHeader('Data Programada', 'usedDate')}
+                    {renderSortableHeader('QTD', 'qtd_mf')}
+                    {renderSortableHeader('Setor', 'stepName')}
+                    {renderSortableHeader('Linha', 'linha')}
                     <th className="font-bold">Status da OP</th>
-                    {renderSortableHeader('Status', 'status', 'w-[15%]')}
+                    {renderSortableHeader('Validação', 'status')}
                   </tr>
                 </thead>
                 <tbody>
