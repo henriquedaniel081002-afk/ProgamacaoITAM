@@ -189,6 +189,7 @@ const STORAGE_KEYS = {
   nucleoTriSource: 'itam_prog_nucleo_tri_source_v1',
   nucleoTriSankhyaRows: 'itam_prog_nucleo_tri_sankhya_rows_v1',
   nucleoTriSector: 'itam_prog_nucleo_tri_sankhya_sector_v1',
+  opStatuses: 'itam_prog_op_statuses_v1',
 };
 
 const readStorage = <T,>(key: string, fallback: T): T => {
@@ -248,6 +249,9 @@ export default function App() {
     readStorage(STORAGE_KEYS.optionalStepsConfig, DEFAULT_OPTIONAL_STEPS_CONFIG)
   );
 
+  const [opStatuses, setOpStatuses] = useState<Record<string, string>>(() => readStorage(STORAGE_KEYS.opStatuses, {}));
+  const [opStatusSource, setOpStatusSource] = useState('');
+  const [opStatusMessage, setOpStatusMessage] = useState('');
   const [rawOPs, setRawOPs] = useState<RawOP[]>(() => readStorage(STORAGE_KEYS.rawOPs, []));
   const [calculatedSteps, setCalculatedSteps] = useState<OPStep[]>(() =>
     applyOptionalStepsConfig(
@@ -292,6 +296,7 @@ export default function App() {
   const [seriesValidationSelection, setSeriesValidationSelection] = useState<SeriesValidationSelection>({ ordem: true, tanque: true, ferragem: true, nucleo: true });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const opStatusFileInputRef = useRef<HTMLInputElement>(null);
   const validationFileInputRef = useRef<HTMLInputElement>(null);
   const seriesFileInputRef = useRef<HTMLInputElement>(null);
   const nucleoTriFileInputRef = useRef<HTMLInputElement>(null);
@@ -302,7 +307,8 @@ export default function App() {
     dateEnd: '',
     sector: '',
     linha: '',
-    op: ''
+    op: '',
+    opStatus: ''
   });
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
 
@@ -329,6 +335,10 @@ export default function App() {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.nucleoTriSector, nucleoTriSector);
   }, [nucleoTriSector]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.opStatuses, opStatuses);
+  }, [opStatuses]);
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.rawOPs, rawOPs);
@@ -1209,6 +1219,43 @@ export default function App() {
     </th>
   );
 
+  // Importação independente: substitui integralmente a relação de status, sem alterar a programação.
+  const handleOpStatusUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = '';
+    setErrorInfo(null);
+    setOpStatusMessage('');
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      if (!worksheet) throw new Error('O arquivo não contém uma planilha válida.');
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: '', raw: false });
+      if (String(rows[2]?.[1] ?? '').trim().toUpperCase() !== 'OP' ||
+          String(rows[2]?.[9] ?? '').trim().toUpperCase() !== 'STATUS') {
+        throw new Error('Formato inválido: a linha 3 deve conter OP na coluna B e Status na coluna J.');
+      }
+      const imported: Record<string, string> = {};
+      let validRows = 0;
+      for (const row of rows.slice(3)) {
+        const op = normalizeOp(row?.[1]);
+        const status = String(row?.[9] ?? '').trim();
+        if (!op || !status) continue;
+        if (Object.prototype.hasOwnProperty.call(imported, op) && imported[op] !== status) {
+          throw new Error(`A OP ${op} aparece com status diferentes no arquivo. Corrija antes de importar.`);
+        }
+        imported[op] = status;
+        validRows++;
+      }
+      if (validRows === 0) throw new Error('Nenhuma OP com status foi encontrada a partir da linha 4.');
+      setOpStatuses(imported);
+      setOpStatusSource(file.name);
+      setOpStatusMessage(`${Object.keys(imported).length} OP(s) com status importado(s). Relação anterior substituída.`);
+    } catch (error) {
+      setErrorInfo(error instanceof Error ? error.message : 'Não foi possível importar os status das OPs.');
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1375,6 +1422,7 @@ export default function App() {
       if (filters.sector && !getSectorsForFilter(filters.sector).includes(step.stepName)) return false;
       if (filters.linha && step.linha !== filters.linha) return false;
       if (filters.op && !step.op.toLowerCase().includes(filters.op.toLowerCase())) return false;
+      if (filters.opStatus && (opStatuses[normalizeOp(step.op)] || 'Não informado') !== filters.opStatus) return false;
       return true;
     };
 
@@ -1388,9 +1436,10 @@ export default function App() {
     if (opsInFilter.size === 0) return directSteps;
 
     return calculatedSteps.filter(step => opsInFilter.has(step.op) && matchesDirectFilters(step, true));
-  }, [calculatedSteps, filters, showOnlyErrors, showOnlyPartial]);
+  }, [calculatedSteps, filters, showOnlyErrors, showOnlyPartial, opStatuses]);
 
   const sectorFilterOptions = useMemo(() => getSectorFilterOptions(), []);
+  const opStatusOptions = useMemo(() => Array.from(new Set(Object.values(opStatuses))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [opStatuses]);
 
   const defaultSortedSteps = useMemo(() => {
     const groupFirstDate = new Map<string, string>();
@@ -1673,6 +1722,10 @@ const rowVisualInfo = useMemo(() => {
           >
             <Upload className="h-4 w-4 text-brand-accent" /> Importar Excel
           </button>
+          <input type="file" accept=".xlsx,.xls" className="hidden" ref={opStatusFileInputRef} onChange={handleOpStatusUpload} />
+          <button type="button" onClick={() => opStatusFileInputRef.current?.click()} className="ui-button ui-button-secondary" title={opStatusMessage || opStatusSource || "Importar relatório de status das OPs"}>
+            <FileSpreadsheet className="h-4 w-4 text-brand-accent" /> Status das OPs
+          </button>
           <button 
             type="button"
             onClick={() => setIsCalendarOpen(true)}
@@ -1761,6 +1814,7 @@ const rowVisualInfo = useMemo(() => {
             filters={filters} 
             setFilters={setFilters} 
             sectors={sectorFilterOptions} 
+            opStatusOptions={opStatusOptions}
           />
         </aside>}
 
@@ -1808,7 +1862,7 @@ const rowVisualInfo = useMemo(() => {
 
           {isMobileFiltersOpen && activeTab !== 'nucleoTri' && (
             <aside id="mobile-filters" className="max-h-[55vh] shrink-0 overflow-y-auto border-b border-brand-border bg-brand-card p-4 lg:hidden">
-              <FilterBar filters={filters} setFilters={setFilters} sectors={sectorFilterOptions} />
+              <FilterBar filters={filters} setFilters={setFilters} sectors={sectorFilterOptions} opStatusOptions={opStatusOptions} />
             </aside>
           )}
 
@@ -2175,6 +2229,7 @@ const rowVisualInfo = useMemo(() => {
                     {renderSortableHeader('QTD', 'qtd_mf', 'w-[8%]')}
                     {renderSortableHeader('Setor', 'stepName', 'w-[31%]')}
                     {renderSortableHeader('Linha', 'linha', 'w-[10%]')}
+                    <th className="font-bold">Status da OP</th>
                     {renderSortableHeader('Status', 'status', 'w-[15%]')}
                   </tr>
                 </thead>
@@ -2248,6 +2303,9 @@ const rowVisualInfo = useMemo(() => {
                         </td>
                         <td>
                           <span className="rounded-md border border-brand-border bg-brand-surface px-2 py-1 text-[11px] font-semibold text-brand-soft">{step.linha || '-'}</span>
+                        </td>
+                        <td>
+                          <span className="rounded-md border border-brand-border bg-brand-surface px-2 py-1 text-[11px] font-semibold text-brand-soft">{opStatuses[normalizeOp(step.op)] || 'Não informado'}</span>
                         </td>
                         <td>
                           {validationInfo ? (

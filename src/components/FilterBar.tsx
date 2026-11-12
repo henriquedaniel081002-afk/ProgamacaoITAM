@@ -7,22 +7,24 @@ interface Filters {
   sector: string;
   linha: string;
   op: string;
+  opStatus: string;
 }
 
 interface FilterBarProps {
   filters: Filters;
   setFilters: React.Dispatch<React.SetStateAction<Filters>>;
   sectors: string[];
+  opStatusOptions: string[];
 }
 
-export function FilterBar({ filters, setFilters, sectors }: FilterBarProps) {
+export function FilterBar({ filters, setFilters, sectors, opStatusOptions }: FilterBarProps) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
   const clearFilters = () => {
-    setFilters({ dateStart: '', dateEnd: '', sector: '', linha: '', op: '' });
+    setFilters({ dateStart: '', dateEnd: '', sector: '', linha: '', op: '', opStatus: '' });
   };
 
   return (
@@ -69,6 +71,18 @@ export function FilterBar({ filters, setFilters, sectors }: FilterBarProps) {
             <option value="TRI">TRI</option>
             <option value="EPO">EPO</option>
             <option value="POT">POT</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3 top-3.5 h-4 w-4 text-brand-muted" />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="filter-op-status" className="text-[11px] font-semibold text-brand-soft">Status da OP</label>
+        <div className="relative">
+          <select id="filter-op-status" name="opStatus" value={filters.opStatus} onChange={handleChange} className="ui-field appearance-none pr-9">
+            <option value="">Todos</option>
+            {opStatusOptions.filter(status => status !== "Não informado").map(status => <option key={status} value={status}>{status}</option>)}
+            <option value="Não informado">Não informado</option>
           </select>
           <ChevronDown className="pointer-events-none absolute right-3 top-3.5 h-4 w-4 text-brand-muted" />
         </div>
