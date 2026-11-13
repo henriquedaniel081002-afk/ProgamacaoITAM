@@ -5,6 +5,13 @@ export interface RawOP {
   linha: string;
   data_mf: string; // YYYY-MM-DD
   qtd_mf: number;
+  // Informações opcionais do Excel de origem, usadas somente pela exportação.
+  serie?: string;
+  serieInicial?: string;
+  serieFinal?: string;
+  potencia?: string;
+  referencia?: string;
+  cliente?: string;
 }
 
 export interface OPStep {
