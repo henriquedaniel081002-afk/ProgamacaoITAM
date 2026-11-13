@@ -12,6 +12,8 @@ import {
 } from './lib/productionLogic';
 import { formatToBRLDate } from './lib/utils';
 import { buildProgramacaoExportRows, PROGRAMACAO_EXPORT_HEADERS } from './lib/programacaoExport';
+import { appendStatusDetails } from './lib/opStatusDetails';
+import type { OpStatusDetailsByOp } from './lib/opStatusDetails';
 import { NucleoTriEntry, parseNucleoTriWorkbook } from './lib/nucleoTri';
 import { NucleoTriSector, NucleoTriSankhyaRow, NucleoTriValidationResult, validateNucleoTri } from './lib/nucleoTriValidation';
 import { CalendarModal } from './components/CalendarModal';
@@ -192,6 +194,7 @@ const STORAGE_KEYS = {
   nucleoTriSankhyaRows: 'itam_prog_nucleo_tri_sankhya_rows_v1',
   nucleoTriSector: 'itam_prog_nucleo_tri_sankhya_sector_v1',
   opStatuses: 'itam_prog_op_statuses_v1',
+  opStatusDetails: 'itam_prog_op_status_details_v1',
 };
 
 const readStorage = <T,>(key: string, fallback: T): T => {
@@ -252,6 +255,9 @@ export default function App() {
   );
 
   const [opStatuses, setOpStatuses] = useState<Record<string, string>>(() => readStorage(STORAGE_KEYS.opStatuses, {}));
+  const [opStatusDetails, setOpStatusDetails] = useState<OpStatusDetailsByOp>(() =>
+    readStorage(STORAGE_KEYS.opStatusDetails, {})
+  );
   const [opStatusImportFeedback, setOpStatusImportFeedback] = useState<OpStatusImportFeedback | null>(null);
   const [rawOPs, setRawOPs] = useState<RawOP[]>(() => readStorage(STORAGE_KEYS.rawOPs, []));
   const [calculatedSteps, setCalculatedSteps] = useState<OPStep[]>(() =>
@@ -1237,11 +1243,16 @@ export default function App() {
         throw new Error('Formato inválido: a linha 3 deve conter OP na coluna B e Status na coluna J.');
       }
       const imported: Record<string, string> = {};
+      const importedDetails: OpStatusDetailsByOp = {};
       let validRows = 0;
       for (const row of rows.slice(3)) {
         const op = normalizeOp(row?.[1]);
         const status = String(row?.[9] ?? '').trim();
-        if (!op || !status) continue;
+        if (!op) continue;
+        // Complementa a OP com cliente, potência, referência e faixas de séries.
+        // A regra existente de importar/validar os status continua independente.
+        appendStatusDetails(importedDetails, op, row);
+        if (!status) continue;
         if (Object.prototype.hasOwnProperty.call(imported, op) && imported[op] !== status) {
           throw new Error(`A OP ${op} aparece com status diferentes no arquivo. Corrija antes de importar.`);
         }
@@ -1250,19 +1261,30 @@ export default function App() {
       }
       if (validRows === 0) throw new Error('Nenhuma OP com status foi encontrada a partir da linha 4.');
 
-      // O sucesso só é informado depois da gravação. Falhas não substituem a relação anterior.
+      // Status e metadados precisam ser salvos juntos; se falhar, restaurar ambos.
+      const previousStatuses = window.localStorage.getItem(STORAGE_KEYS.opStatuses);
+      const previousDetails = window.localStorage.getItem(STORAGE_KEYS.opStatusDetails);
       try {
+        window.localStorage.setItem(STORAGE_KEYS.opStatusDetails, JSON.stringify(importedDetails));
         window.localStorage.setItem(STORAGE_KEYS.opStatuses, JSON.stringify(imported));
       } catch {
-        throw new Error('Não foi possível salvar os status no navegador. Confira o espaço ou as permissões de armazenamento.');
+        try {
+          if (previousDetails === null) window.localStorage.removeItem(STORAGE_KEYS.opStatusDetails);
+          else window.localStorage.setItem(STORAGE_KEYS.opStatusDetails, previousDetails);
+          if (previousStatuses === null) window.localStorage.removeItem(STORAGE_KEYS.opStatuses);
+          else window.localStorage.setItem(STORAGE_KEYS.opStatuses, previousStatuses);
+        } catch { /* O navegador pode estar com armazenamento indisponível. */ }
+        throw new Error('Não foi possível salvar os status e séries no navegador. A importação anterior foi preservada.');
       }
 
+      setOpStatusDetails(importedDetails);
       setOpStatuses(imported);
       const uniqueCount = Object.keys(imported).length;
+      const rangeCount = Object.values(importedDetails).reduce((total, details) => total + details.faixas.length, 0);
       setOpStatusImportFeedback({
         kind: 'success',
         fileName: file.name,
-        message: `${uniqueCount.toLocaleString('pt-BR')} ${uniqueCount === 1 ? 'OP importada e salva' : 'OPs importadas e salvas'} com sucesso. Os status anteriores foram substituídos.`,
+        message: `${uniqueCount.toLocaleString('pt-BR')} ${uniqueCount === 1 ? 'OP importada e salva' : 'OPs importadas e salvas'} com sucesso. ${rangeCount.toLocaleString('pt-BR')} faixa(s) de séries disponíveis para exportação. Os status anteriores foram substituídos.`,
       });
     } catch (error) {
       setOpStatusImportFeedback({
@@ -1637,7 +1659,7 @@ export default function App() {
     setErrorInfo(null);
     try {
       // displayedSteps já reúne os filtros, a ordenação e as datas manuais exibidas no painel.
-      const dataRows = buildProgramacaoExportRows(displayedSteps, rawOPs);
+      const dataRows = buildProgramacaoExportRows(displayedSteps, rawOPs, opStatusDetails);
       const sheetRows = [
         [...PROGRAMACAO_EXPORT_HEADERS],
         ...dataRows.map(([serie, potencia, op, referencia, linha, cliente, isoDate, setor]) => {
