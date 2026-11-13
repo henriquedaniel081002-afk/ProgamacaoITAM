@@ -7,6 +7,26 @@ export const PROGRAMACAO_EXPORT_HEADERS = [
 
 export type ProgramacaoExportRow = [string, string, string, string, string, string, string, string];
 
+// Nomenclaturas exigidas pela base de apontamento/produção (somente exportação).
+// A etapa interna "Pintura Ferragem" não integra essa relação: PINTURA é a
+// etapa Pintura Tanque (1 dia útil antes da Montagem Final).
+export const EXPORT_SECTOR_NAMES: Readonly<Record<string, string>> = {
+  'Montagem Final': 'MONTAGEM FINAL',
+  'Montagem Núcleo': 'MONTAGEM DO NUCLEO',
+  'Bobinagem AT': 'BOBINA AT',
+  'Pintura Tanque': 'PINTURA',
+  'MPA': 'MPA',
+  'Ferragem': 'FERRAGEM',
+  'Isolante': 'ISOLANTE',
+  'Bobinagem BT': 'BOBINA BT',
+  'Solda Tanque': 'SOLDA',
+  'Corte Núcleo': 'CORTE DO NUCLEO',
+  'Estamparia': 'CORTE DO LASER',
+  'Bobinagem Epoxi': 'BOBINAGEM EPOXI',
+  'Encapsulamento': 'ENCAPSULAMENTO',
+};
+
+
 const sourceKey = (op: Pick<RawOP, 'op' | 'linha' | 'data_mf' | 'qtd_mf'>) =>
   `${op.op.trim()}|${op.linha.trim().toUpperCase()}|${op.data_mf}|${op.qtd_mf}`;
 
@@ -53,6 +73,8 @@ export function buildProgramacaoExportRows(visibleSteps: OPStep[], rawOPs: RawOP
   const seenSeriesPerSector = new Map<string, string>();
 
   for (const step of orderedSteps) {
+    const exportSector = EXPORT_SECTOR_NAMES[step.stepName];
+    if (!exportSector) continue; // Etapa interna sem equivalente no padrão solicitado.
     // Dados de origem podem ter sido importados antes da funcionalidade de exportação.
     // Mesmo sem o registro original, a etapa exibida deve ser exportável.
     const matching: RawOP[] = sources.get(sourceKey(step)) ?? [{
@@ -65,7 +87,7 @@ export function buildProgramacaoExportRows(visibleSteps: OPStep[], rawOPs: RawOP
       for (const serie of getSeries(original)) {
         // Séries vazias não podem ser deduplicadas: cada uma representa uma peça.
         if (serie) {
-          const uniqueKey = `${original.op}|${step.stepName}|${serie}`;
+          const uniqueKey = `${original.op}|${exportSector}|${serie}`;
           const previousDate = seenSeriesPerSector.get(uniqueKey);
           if (previousDate) {
             if (previousDate !== step.usedDate) {
@@ -75,9 +97,10 @@ export function buildProgramacaoExportRows(visibleSteps: OPStep[], rawOPs: RawOP
           }
           seenSeriesPerSector.set(uniqueKey, step.usedDate);
         }
-        results.push([serie, potencia, original.op, referencia, step.linha, cliente, step.usedDate, step.stepName]);
+        results.push([serie, potencia, original.op, referencia, step.linha, cliente, step.usedDate, exportSector]);
       }
     }
   }
+  if (results.length === 0) throw new Error('Nenhum setor da programação filtrada corresponde às nomenclaturas configuradas para exportação.');
   return results;
 }
