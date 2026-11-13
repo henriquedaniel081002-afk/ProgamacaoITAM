@@ -1300,7 +1300,7 @@ export default function App() {
             serieInicial: String(getCellValue(row, ['SÉRIE INICIAL', 'SERIE INICIAL', 'SERIE_INICIAL']) ?? '').trim(),
             serieFinal: String(getCellValue(row, ['SÉRIE FINAL', 'SERIE FINAL', 'SERIE_FINAL']) ?? '').trim(),
             potencia: String(getCellValue(row, ['POTÊNCIA', 'POTENCIA', 'POTÊNCIA KVA', 'POTENCIA KVA', 'POT']) ?? '').trim(),
-            referencia: String(getCellValue(row, ['REFERÊNCIA', 'REFERENCIA', 'REF']) ?? '').trim(),
+            referencia: String(getCellValue(row, ['COD_REFERENCIA', 'COD REFERENCIA', 'CÓD. REFERÊNCIA', 'REFERÊNCIA', 'REFERENCIA', 'REF']) ?? '').trim(),
             cliente: String(getCellValue(row, ['CLIENTE', 'NOME CLIENTE', 'RAZÃO SOCIAL', 'RAZAO SOCIAL']) ?? '').trim(),
           };
         }).filter(op => op.op && op.data_mf);
