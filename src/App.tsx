@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { BarChart3, Calendar as CalendarIcon, Copy, Check, FileSpreadsheet, FlaskConical, X, FileCheck2, ChevronRight, Factory, Inbox, List, SlidersHorizontal, Upload, Zap, ArrowUpDown } from 'lucide-react';
+import { BarChart3, Calendar as CalendarIcon, Copy, Check, FileSpreadsheet, FlaskConical, X, FileCheck2, ChevronRight, Factory, Inbox, List, SlidersHorizontal, Upload, Zap, ArrowUpDown, FileDown } from 'lucide-react';
 import { 
   RawOP, 
   OPStep, 
@@ -11,6 +11,7 @@ import {
   shouldIncludeProductionStep 
 } from './lib/productionLogic';
 import { formatToBRLDate } from './lib/utils';
+import { buildProgramacaoExportRows, PROGRAMACAO_EXPORT_HEADERS } from './lib/programacaoExport';
 import { NucleoTriEntry, parseNucleoTriWorkbook } from './lib/nucleoTri';
 import { NucleoTriSector, NucleoTriSankhyaRow, NucleoTriValidationResult, validateNucleoTri } from './lib/nucleoTriValidation';
 import { CalendarModal } from './components/CalendarModal';
@@ -1294,6 +1295,13 @@ export default function App() {
             linha: String(getCellValue(row, ['LINHA', 'Linha']) ?? '').trim().toUpperCase(),
             data_mf: parsedDate,
             qtd_mf: parseNumber(getCellValue(row, ['QTD_MF', 'QTD MF', 'QTD', 'QUANTIDADE', 'Quantidade MF'])),
+            // Metadados opcionais: não interferem nos cálculos nem na importação antiga.
+            serie: String(getCellValue(row, ['SÉRIE', 'SERIE', 'SERIES']) ?? '').trim(),
+            serieInicial: String(getCellValue(row, ['SÉRIE INICIAL', 'SERIE INICIAL', 'SERIE_INICIAL']) ?? '').trim(),
+            serieFinal: String(getCellValue(row, ['SÉRIE FINAL', 'SERIE FINAL', 'SERIE_FINAL']) ?? '').trim(),
+            potencia: String(getCellValue(row, ['POTÊNCIA', 'POTENCIA', 'POTÊNCIA KVA', 'POTENCIA KVA', 'POT']) ?? '').trim(),
+            referencia: String(getCellValue(row, ['REFERÊNCIA', 'REFERENCIA', 'REF']) ?? '').trim(),
+            cliente: String(getCellValue(row, ['CLIENTE', 'NOME CLIENTE', 'RAZÃO SOCIAL', 'RAZAO SOCIAL']) ?? '').trim(),
           };
         }).filter(op => op.op && op.data_mf);
 
@@ -1625,6 +1633,36 @@ export default function App() {
     });
   }, [baseDisplayedSteps, sortConfig, validationByPanelKey, sankhyaRows.length]);
 
+  const handleExportProgramacao = () => {
+    setErrorInfo(null);
+    try {
+      // displayedSteps já reúne os filtros, a ordenação e as datas manuais exibidas no painel.
+      const dataRows = buildProgramacaoExportRows(displayedSteps, rawOPs);
+      const sheetRows = [
+        [...PROGRAMACAO_EXPORT_HEADERS],
+        ...dataRows.map(([serie, potencia, op, referencia, linha, cliente, isoDate, setor]) => {
+          const [year, month, day] = isoDate.split('-').map(Number);
+          return [serie, potencia, op, referencia, linha, cliente, new Date(year, month - 1, day), setor];
+        }),
+      ];
+      const worksheet = XLSX.utils.aoa_to_sheet(sheetRows, { cellDates: true });
+      for (let index = 2; index <= sheetRows.length; index++) {
+        const dateCell = worksheet[`G${index}`];
+        if (dateCell) dateCell.z = 'dd/mm/yyyy';
+      }
+      worksheet['!cols'] = [
+        { wch: 16 }, { wch: 13 }, { wch: 14 }, { wch: 24 },
+        { wch: 12 }, { wch: 36 }, { wch: 17 }, { wch: 24 },
+      ];
+      worksheet['!autofilter'] = { ref: `A1:H${sheetRows.length}` };
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Programação');
+      XLSX.writeFile(workbook, `Programacao_ITAM_${new Date().toISOString().slice(0, 10)}.xlsx`, { bookType: 'xlsx', cellDates: true });
+    } catch (error) {
+      setErrorInfo(error instanceof Error ? error.message : 'Não foi possível exportar a programação.');
+    }
+  };
+
   const handleSort = (key: SortKey) => {
     setSortConfig(current => {
       if (!current || current.key !== key) return { key, direction: 'asc' };
@@ -1953,6 +1991,17 @@ const rowVisualInfo = useMemo(() => {
                     Programado parcial
                   </label>
                 </>
+              )}
+              {activeTab === 'programacao' && (
+                <button
+                  type="button"
+                  onClick={handleExportProgramacao}
+                  disabled={displayedSteps.length === 0}
+                  className="ui-button ui-button-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Exportar para Excel somente os registros exibidos pelos filtros aplicados"
+                >
+                  <FileDown className="h-4 w-4 text-brand-accent" /> Exportar Excel
+                </button>
               )}
               <button
                 type="button"
